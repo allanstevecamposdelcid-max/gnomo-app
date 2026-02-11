@@ -1,0 +1,119 @@
+@import "tailwindcss/preflight";
+@import "tailwindcss/theme";
+@import "tailwindcss/utilities";
+
+/* ======================
+   VARIABLES DE TEMA
+   ====================== */
+
+/* 🌞 TEMA CLARO (DEFAULT) */
+:root {
+  --bg: 255 255 255;
+  --card: 245 245 247;
+  --card-soft: 235 235 238;
+
+  --text: 23 23 23;
+  --muted: 110 110 120;
+
+  --border: 0 0 0 / 0.08;
+  --accent: 34 197 94;
+}
+
+/* 🌙 TEMA OSCURO — CLAVE: MISMO SCOPE */
+:root.dark {
+  --bg: 10 10 11;
+  --card: 17 17 20;
+  --card-soft: 21 21 25;
+
+  --text: 235 235 235;
+  --muted: 160 160 170;
+
+  --border: 255 255 255 / 0.08;
+  --accent: 34 197 94;
+}
+
+/* ======================
+   BASE
+   ====================== */
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background-color: rgb(var(--bg));
+  color: rgb(var(--text));
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text",
+    "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ======================
+   COMPONENTES
+   ====================== */
+
+.card {
+  background-color: rgb(var(--card));
+  border-radius: 16px;
+  border: 1px solid rgb(var(--border));
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.card-soft {
+  background-color: rgb(var(--card-soft));
+  border-radius: 14px;
+  border: 1px solid rgb(var(--border));
+}
+
+/* ======================
+   TEXTO
+   ====================== */
+
+.text-muted {
+  color: rgb(var(--muted));
+}
+
+/* ======================
+   BOTONES
+   ====================== */
+
+.btn {
+  border-radius: 14px;
+  padding: 10px 16px;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.btn-primary {
+  background-color: rgb(var(--accent));
+  color: black;
+}
+
+.btn-primary:hover {
+  opacity: 0.9;
+}
+
+/* ======================
+   INPUTS
+   ====================== */
+
+input,
+select {
+  background-color: rgb(var(--card-soft));
+  border: 1px solid rgb(var(--border));
+  border-radius: 12px;
+  padding: 10px 12px;
+  outline: none;
+  color: rgb(var(--text));
+}
+
+input::placeholder {
+  color: rgb(var(--muted));
+}
+
+input:focus,
+select:focus {
+  border-color: rgb(var(--accent));
+  box-shadow: 0 0 0 2px rgb(var(--accent) / 0.2);
+}
