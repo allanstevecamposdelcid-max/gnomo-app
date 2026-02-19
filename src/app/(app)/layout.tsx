@@ -1,21 +1,21 @@
-import AppHeader from "@/components/AppHeader";
-import AppSidebar from "@/components/AppSidebar";
+import "./globals.css";
+import { ThemeProvider } from "@/components/ThemeProvider";
 
-export default function AppLayout({
+export const metadata = {
+  title: "Sistema Contable",
+  description: "Sistema de ventas y control diario",
+};
+
+export default function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
   return (
-    <div className="min-h-screen flex flex-col">
-      <AppHeader />
-
-      <div className="flex flex-1">
-        <AppSidebar />
-        <main className="flex-1 px-6 py-8">
-          {children}
-        </main>
-      </div>
-    </div>
+    <html lang="es" suppressHydrationWarning>
+      <body className="min-h-screen">
+        <ThemeProvider>{children}</ThemeProvider>
+      </body>
+    </html>
   );
 }
