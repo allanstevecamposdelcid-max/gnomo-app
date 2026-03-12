@@ -1,51 +1,61 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Search, Plus, Pencil, Trash2, PackageCheck, PackageX, Tag, X, Save } from "lucide-react";
+import { Search, Plus, Pencil, Trash2, PackageCheck, PackageX, Tag, X, Save, Store } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 
 type Category = { id: string; name: string };
+type Supplier = { id: string; name: string };
 
 type Product = {
   id: string; name: string; sku: string | null;
   stock: number; cost: number; price: number;
   category_id: string | null;
+  supplier_id: string | null;
   categories: { name: string } | null;
+  suppliers:  { name: string } | null;
 };
 
 export default function InventarioPage() {
-  const [q, setQ] = useState("");
-  const [filterCat, setFilterCat] = useState("");
-  const [items, setItems] = useState<Product[]>([]);
+  const [q,          setQ]          = useState("");
+  const [filterCat,  setFilterCat]  = useState("");
+  const [filterSup,  setFilterSup]  = useState("");
+  const [items,      setItems]      = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [creating, setCreating] = useState(false);
-  const [editing, setEditing] = useState<Product | null>(null);
-  const [catModal, setCatModal] = useState(false);
+  const [suppliers,  setSuppliers]  = useState<Supplier[]>([]);
+  const [loading,    setLoading]    = useState(false);
+  const [creating,   setCreating]   = useState(false);
+  const [editing,    setEditing]    = useState<Product | null>(null);
+  const [catModal,   setCatModal]   = useState(false);
 
-  async function loadCats() {
-    const { data } = await supabase.from("categories").select("id, name").order("name");
-    setCategories((data as Category[]) ?? []);
+  async function loadMeta() {
+    const [catsRes, supsRes] = await Promise.all([
+      supabase.from("categories").select("id, name").order("name"),
+      supabase.from("suppliers").select("id, name").order("name"),
+    ]);
+    setCategories((catsRes.data as Category[]) ?? []);
+    setSuppliers((supsRes.data as Supplier[]) ?? []);
   }
 
   async function load() {
     setLoading(true);
     let query = supabase
       .from("products")
-      .select("id, name, sku, stock, cost, price, category_id, categories(name)")
+      .select("id, name, sku, stock, cost, price, category_id, supplier_id, categories(name), suppliers(name)")
       .eq("active", true)
       .order("name");
-    if (q.trim()) query = query.or(`name.ilike.%${q}%,sku.ilike.%${q}%`);
-    if (filterCat) query = query.eq("category_id", filterCat);
+    if (q.trim())   query = query.or(`name.ilike.%${q}%,sku.ilike.%${q}%`);
+    if (filterCat)  query = query.eq("category_id", filterCat);
+    if (filterSup)  query = query.eq("supplier_id", filterSup);
     const { data, error } = await query;
     setLoading(false);
     if (error) { alert(error.message); return; }
     setItems((data as unknown as Product[]) || []);
   }
 
-  useEffect(() => { loadCats(); }, []);
+  useEffect(() => { loadMeta(); }, []);
   useEffect(() => { load(); }, []);
-  useEffect(() => { const t = setTimeout(load, 250); return () => clearTimeout(t); }, [q, filterCat]);
+  useEffect(() => { const t = setTimeout(load, 250); return () => clearTimeout(t); }, [q, filterCat, filterSup]);
 
   async function deleteProduct(id: string) {
     if (!confirm("¿Eliminar este producto? El historial se conserva.")) return;
@@ -83,54 +93,67 @@ export default function InventarioPage() {
         <div className="relative flex-1 min-w-48">
           <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted pointer-events-none" />
           <input value={q} onChange={(e) => setQ(e.target.value)}
-            placeholder="Buscar por nombre o SKU…" className="pl-9 w-full" />
+            placeholder="Buscar por nombre o SKU…" className="input pl-9 w-full" />
         </div>
-        <select className="input w-auto"
-          value={filterCat} onChange={(e) => setFilterCat(e.target.value)}>
+        <select className="input w-auto" value={filterCat} onChange={(e) => setFilterCat(e.target.value)}>
           <option value="">Todas las categorías</option>
           {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </select>
+        <select className="input w-auto" value={filterSup} onChange={(e) => setFilterSup(e.target.value)}>
+          <option value="">Todos los proveedores</option>
+          {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
         </select>
       </div>
 
       {/* TABLA DESKTOP */}
       <div className="card p-0 overflow-x-auto hidden sm:block">
         {loading ? <p className="p-6 text-sm text-muted">Cargando…</p> : (
-          <table>
+          <table className="min-w-full text-sm">
             <thead>
-              <tr className="border-b border-[rgb(var(--border))]">
-                <th>Producto</th><th>Categoría</th><th>SKU</th>
-                <th className="text-right">Stock</th>
-                <th className="text-right">Costo</th><th className="text-right">Precio</th>
-                <th className="text-right">Ganancia</th><th className="text-right">Margen</th>
-                <th className="text-center">Acciones</th>
+              <tr className="border-b border-[rgb(var(--border))] text-muted text-xs uppercase tracking-wider">
+                <th className="p-3 text-left">Producto</th>
+                <th className="p-3 text-left">Categoría</th>
+                <th className="p-3 text-left">Proveedor</th>
+                <th className="p-3 text-left">SKU</th>
+                <th className="p-3 text-right">Stock</th>
+                <th className="p-3 text-right">Costo</th>
+                <th className="p-3 text-right">Precio</th>
+                <th className="p-3 text-right">Ganancia</th>
+                <th className="p-3 text-right">Margen</th>
+                <th className="p-3 text-center">Acciones</th>
               </tr>
             </thead>
             <tbody>
               {items.map((p) => (
                 <tr key={p.id} className="border-t border-[rgb(var(--border))] hover:bg-[rgb(var(--card-soft))] transition-colors">
-                  <td className="font-medium">{p.name}</td>
-                  <td>
+                  <td className="p-3 font-medium">{p.name}</td>
+                  <td className="p-3">
                     {p.categories
                       ? <span className="badge badge-blue text-xs">{p.categories.name}</span>
                       : <span className="text-muted text-xs">—</span>}
                   </td>
-                  <td className="font-mono text-xs text-muted">{p.sku ?? "—"}</td>
-                  <td className="text-right">
+                  <td className="p-3">
+                    {p.suppliers
+                      ? <span className="badge badge-orange text-xs flex items-center gap-1 w-fit">
+                          <Store size={9}/>{p.suppliers.name}
+                        </span>
+                      : <span className="text-muted text-xs">—</span>}
+                  </td>
+                  <td className="p-3 font-mono text-xs text-muted">{p.sku ?? "—"}</td>
+                  <td className="p-3 text-right">
                     <span className={`badge ${p.stock <= 0 ? "badge-red" : p.stock <= 5 ? "badge-orange" : "badge-green"}`}>
                       {p.stock <= 0 ? "Sin stock" : p.stock}
                     </span>
                   </td>
-                  <td className="text-right text-muted">Q{p.cost.toFixed(2)}</td>
-                  <td className="text-right font-medium">Q{p.price.toFixed(2)}</td>
-                  <td className="text-right text-green-500 font-medium">
-                    Q{(p.price - p.cost).toFixed(2)}
-                  </td>
-                  <td className="text-right">
+                  <td className="p-3 text-right text-muted">Q{p.cost.toFixed(2)}</td>
+                  <td className="p-3 text-right font-medium">Q{p.price.toFixed(2)}</td>
+                  <td className="p-3 text-right text-green-500 font-medium">Q{(p.price - p.cost).toFixed(2)}</td>
+                  <td className="p-3 text-right">
                     <span className={`text-sm font-medium ${margin(p) >= 30 ? "text-green-500" : margin(p) >= 10 ? "text-yellow-500" : "text-red-500"}`}>
                       {margin(p)}%
                     </span>
                   </td>
-                  <td className="text-center">
+                  <td className="p-3 text-center">
                     <div className="flex items-center justify-center gap-1">
                       <button onClick={() => setEditing(p)} className="btn btn-ghost p-2"><Pencil size={14} /></button>
                       <button onClick={() => deleteProduct(p.id)} className="btn btn-ghost p-2 text-red-500"><Trash2 size={14} /></button>
@@ -139,7 +162,7 @@ export default function InventarioPage() {
                 </tr>
               ))}
               {items.length === 0 && (
-                <tr><td colSpan={9} className="py-10 text-center text-muted">No hay productos</td></tr>
+                <tr><td colSpan={10} className="py-10 text-center text-muted">No hay productos</td></tr>
               )}
             </tbody>
           </table>
@@ -154,10 +177,15 @@ export default function InventarioPage() {
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
                 <p className="font-semibold truncate">{p.name}</p>
-                <div className="flex items-center gap-2 mt-0.5">
+                <div className="flex items-center flex-wrap gap-1.5 mt-1">
                   {p.sku && <p className="text-xs text-muted font-mono">{p.sku}</p>}
                   {p.categories && (
                     <span className="badge badge-blue text-[10px]">{p.categories.name}</span>
+                  )}
+                  {p.suppliers && (
+                    <span className="badge badge-orange text-[10px] flex items-center gap-1">
+                      <Store size={9}/>{p.suppliers.name}
+                    </span>
                   )}
                 </div>
               </div>
@@ -186,47 +214,47 @@ export default function InventarioPage() {
 
       {/* MODALES */}
       {creating && (
-        <ProductModal title="Nuevo producto" categories={categories}
+        <ProductModal title="Nuevo producto" categories={categories} suppliers={suppliers}
           onClose={() => setCreating(false)}
           onSaved={() => { setCreating(false); load(); }} />
       )}
       {editing && (
-        <ProductModal title="Editar producto" initial={editing} categories={categories}
+        <ProductModal title="Editar producto" initial={editing} categories={categories} suppliers={suppliers}
           onClose={() => setEditing(null)}
           onSaved={() => { setEditing(null); load(); }} />
       )}
       {catModal && (
-        <CategoriesModal
-          categories={categories}
-          onClose={() => { setCatModal(false); loadCats(); }} />
+        <CategoriesModal categories={categories} onClose={() => { setCatModal(false); loadMeta(); }} />
       )}
     </div>
   );
 }
 
 /* ── Modal Producto ── */
-function ProductModal({ title, initial, categories, onClose, onSaved }: {
-  title: string; initial?: Product; categories: Category[];
+function ProductModal({ title, initial, categories, suppliers, onClose, onSaved }: {
+  title: string; initial?: Product; categories: Category[]; suppliers: Supplier[];
   onClose: () => void; onSaved: () => void;
 }) {
-  const [name,    setName]    = useState(initial?.name  ?? "");
-  const [sku,     setSku]     = useState(initial?.sku   ?? "");
+  const [name,    setName]    = useState(initial?.name        ?? "");
+  const [sku,     setSku]     = useState(initial?.sku         ?? "");
   const [stock,   setStock]   = useState<number | "">(initial?.stock ?? "");
   const [cost,    setCost]    = useState<number | "">(initial?.cost  ?? "");
   const [price,   setPrice]   = useState<number | "">(initial?.price ?? "");
   const [catId,   setCatId]   = useState<string>(initial?.category_id ?? "");
+  const [supId,   setSupId]   = useState<string>(initial?.supplier_id ?? "");
   const [saving,  setSaving]  = useState(false);
 
   async function save() {
     if (!name.trim()) { alert("El nombre es obligatorio"); return; }
     setSaving(true);
     const payload = {
-      name: name.trim(),
-      sku: sku.trim() || null,
-      stock: Number(stock || 0),
-      cost: Number(cost || 0),
-      price: Number(price || 0),
+      name:        name.trim(),
+      sku:         sku.trim() || null,
+      stock:       Number(stock  || 0),
+      cost:        Number(cost   || 0),
+      price:       Number(price  || 0),
       category_id: catId || null,
+      supplier_id: supId || null,
     };
     const { error } = initial
       ? await supabase.from("products").update(payload).eq("id", initial.id)
@@ -243,42 +271,56 @@ function ProductModal({ title, initial, categories, onClose, onSaved }: {
   return (
     <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal-box">
-        <h2 className="font-semibold text-base mb-4">{title}</h2>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="font-semibold text-base">{title}</h2>
+          <button onClick={onClose} className="text-muted hover:text-[rgb(var(--text))]"><X size={18}/></button>
+        </div>
         <div className="space-y-3">
           <div>
             <label className="text-xs text-muted block mb-1">Nombre *</label>
-            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Nombre del producto" />
+            <input className="input w-full" value={name} onChange={(e) => setName(e.target.value)} placeholder="Nombre del producto" />
           </div>
-          <div>
-            <label className="text-xs text-muted block mb-1">Categoría</label>
-            <select className="input w-full" value={catId} onChange={(e) => setCatId(e.target.value)}>
-              <option value="">Sin categoría</option>
-              {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs text-muted block mb-1">Categoría</label>
+              <select className="input w-full" value={catId} onChange={(e) => setCatId(e.target.value)}>
+                <option value="">Sin categoría</option>
+                {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs text-muted flex items-center gap-1 mb-1">
+                <Store size={11}/> Proveedor / Tienda
+              </label>
+              <select className="input w-full" value={supId} onChange={(e) => setSupId(e.target.value)}>
+                <option value="">Sin proveedor</option>
+                {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+            </div>
           </div>
           <div>
             <label className="text-xs text-muted block mb-1">Código SKU (opcional)</label>
-            <input value={sku} onChange={(e) => setSku(e.target.value)} placeholder="Ej: PROD-001" />
+            <input className="input w-full" value={sku} onChange={(e) => setSku(e.target.value)} placeholder="Ej: PROD-001" />
           </div>
           <div className="grid grid-cols-3 gap-3">
             <div>
               <label className="text-xs text-muted block mb-1">Stock</label>
-              <input type="number" min={0} value={stock}
+              <input className="input w-full" type="number" min={0} value={stock}
                 onChange={(e) => setStock(e.target.value === "" ? "" : Number(e.target.value))} />
             </div>
             <div>
               <label className="text-xs text-muted block mb-1">Costo (Q)</label>
-              <input type="number" min={0} step="0.01" value={cost}
+              <input className="input w-full" type="number" min={0} step="0.01" value={cost}
                 onChange={(e) => setCost(e.target.value === "" ? "" : Number(e.target.value))} />
             </div>
             <div>
               <label className="text-xs text-muted block mb-1">Precio (Q)</label>
-              <input type="number" min={0} step="0.01" value={price}
+              <input className="input w-full" type="number" min={0} step="0.01" value={price}
                 onChange={(e) => setPrice(e.target.value === "" ? "" : Number(e.target.value))} />
             </div>
           </div>
           {Number(price) > 0 && (
-            <p className="text-xs text-muted">
+            <p className="text-xs text-muted bg-[rgb(var(--card-soft))] rounded-lg px-3 py-2">
               Margen: <span className="font-semibold text-green-500">{m}%</span>
               {" · "}Ganancia/u: <span className="font-semibold">Q{(Number(price) - Number(cost)).toFixed(2)}</span>
             </p>
@@ -287,7 +329,7 @@ function ProductModal({ title, initial, categories, onClose, onSaved }: {
         <div className="flex gap-2 mt-5">
           <button onClick={onClose} className="btn btn-ghost flex-1">Cancelar</button>
           <button onClick={save} disabled={saving} className="btn btn-primary flex-1">
-            {saving ? "Guardando…" : "Guardar"}
+            <Save size={14}/>{saving ? "Guardando…" : "Guardar"}
           </button>
         </div>
       </div>
@@ -299,9 +341,9 @@ function ProductModal({ title, initial, categories, onClose, onSaved }: {
 function CategoriesModal({ categories, onClose }: {
   categories: Category[]; onClose: () => void;
 }) {
-  const [list, setList] = useState<Category[]>(categories);
+  const [list,    setList]    = useState<Category[]>(categories);
   const [newName, setNewName] = useState("");
-  const [saving, setSaving] = useState(false);
+  const [saving,  setSaving]  = useState(false);
 
   async function addCat() {
     if (!newName.trim()) return;
@@ -325,36 +367,31 @@ function CategoriesModal({ categories, onClose }: {
     <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal-box">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="font-semibold text-base flex items-center gap-2"><Tag size={16} />Categorías</h2>
-          <button onClick={onClose} className="text-muted hover:text-[rgb(var(--text))]"><X size={18} /></button>
+          <h2 className="font-semibold text-base flex items-center gap-2"><Tag size={16}/>Categorías</h2>
+          <button onClick={onClose} className="text-muted hover:text-[rgb(var(--text))]"><X size={18}/></button>
         </div>
-
-        {/* Agregar */}
         <div className="flex gap-2 mb-4">
           <input className="input flex-1" placeholder="Nueva categoría…"
             value={newName} onChange={(e) => setNewName(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && addCat()} />
-          <button onClick={addCat} disabled={saving || !newName.trim()} className="btn btn-primary">
-            <Save size={14} />
+          <button onClick={addCat} disabled={saving || !newName.trim()} className="btn btn-primary px-3">
+            <Save size={14}/>
           </button>
         </div>
-
-        {/* Lista */}
         <div className="space-y-1.5 max-h-64 overflow-y-auto">
           {list.length === 0 && <p className="text-sm text-muted text-center py-4">Sin categorías aún</p>}
           {list.map(c => (
             <div key={c.id} className="flex items-center justify-between px-3 py-2 rounded-lg bg-[rgb(var(--card-soft))]">
               <div className="flex items-center gap-2">
-                <Tag size={12} className="text-muted" />
+                <Tag size={12} className="text-muted"/>
                 <span className="text-sm font-medium">{c.name}</span>
               </div>
               <button onClick={() => deleteCat(c.id)} className="text-muted hover:text-red-500 p-1">
-                <Trash2 size={13} />
+                <Trash2 size={13}/>
               </button>
             </div>
           ))}
         </div>
-
         <button onClick={onClose} className="btn btn-ghost w-full mt-4">Cerrar</button>
       </div>
     </div>
