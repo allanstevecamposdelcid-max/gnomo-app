@@ -1,17 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import {
   TrendingUp,
   AlertTriangle,
   Wallet,
-  Plus,
-  List,
-  BarChart3,
-  Boxes,
   ShoppingBag,
-  Receipt,
   PackageX,
 } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
@@ -241,20 +235,6 @@ export default function DashboardPage() {
         </section>
       )}
 
-      {/* ACCIONES RÁPIDAS */}
-      <section className="space-y-3">
-        <h2 className="text-xs font-semibold text-muted uppercase tracking-wider">Acciones rápidas</h2>
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-          <Action href="/ventas/nueva" icon={<Plus size={18} />}   label="Nueva venta"   primary />
-          <Action href="/ventas"       icon={<List size={18} />}    label="Ver ventas"            />
-          <Action href="/inventario"   icon={<Boxes size={18} />}   label="Inventario"            />
-          <Action href="/caja"         icon={<Wallet size={18} />}  label="Caja diaria"           />
-          <Action href="/gastos-fijos" icon={<Receipt size={18} />} label="Gastos fijos"          />
-          <Action href="/perdidas"     icon={<PackageX size={18} />} label="Pérdidas"             />
-          <Action href="/graficas"     icon={<BarChart3 size={18} />} label="Gráficas"            />
-        </div>
-      </section>
-
       {/* BAJO STOCK DETALLE */}
       {lowStock.length > 0 && (
         <section className="space-y-3">
@@ -325,30 +305,5 @@ function Metric({
       <div className={`text-2xl font-bold ${valueColor}`}>{value}</div>
       {sub && <p className="text-xs text-muted">{sub}</p>}
     </div>
-  );
-}
-
-function Action({
-  href, icon, label, primary,
-}: {
-  href: string;
-  icon: React.ReactNode;
-  label: string;
-  primary?: boolean;
-}) {
-  return (
-    <Link
-      href={href}
-      className={`card p-4 flex items-center gap-3 hover:-translate-y-px hover:shadow-md transition text-sm font-medium ${
-        primary ? "border-green-500/30" : ""
-      }`}
-    >
-      <div className={`h-8 w-8 rounded-lg flex items-center justify-center shrink-0 ${
-        primary ? "bg-green-500/20 text-green-400" : "bg-white/5 text-muted"
-      }`}>
-        {icon}
-      </div>
-      {label}
-    </Link>
   );
 }
