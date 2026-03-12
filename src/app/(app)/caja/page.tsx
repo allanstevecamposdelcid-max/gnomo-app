@@ -1,29 +1,21 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import {
-  Wallet,
-  TrendingUp,
-  TrendingDown,
-  Plus,
-  CalendarDays,
-  Trash2,
-} from "lucide-react";
+import { Wallet, TrendingUp, TrendingDown, ShoppingBag, Plus, Trash2 } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 
 /* =====================
    TYPES
 ===================== */
 
-type SaleItem = {
-  qty: number;
-  unit_cost: number;
-};
-
 type Sale = {
+  id: string;
+  order_number: string;
+  customer_name: string;
   total: number;
-  dtf_cost: number;
-  sale_items: SaleItem[];
+  status: "pendiente" | "enviado" | "entregado" | "no_recibido";
+  payment_type: "pagado" | "contra_entrega";
+  created_at: string;
 };
 
 type Expense = {
@@ -37,133 +29,78 @@ type Expense = {
 ===================== */
 
 export default function CajaPage() {
+  const today = new Date().toISOString().slice(0, 10);
+  const [date, setDate] = useState(today);
+
   const [sales, setSales] = useState<Sale[]>([]);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [loading, setLoading] = useState(false);
 
-  const [date, setDate] = useState(
-    new Date().toISOString().slice(0, 10)
-  );
-
+  // Form gasto
   const [desc, setDesc] = useState("");
   const [amount, setAmount] = useState<number | "">("");
+  const [saving, setSaving] = useState(false);
 
   /* =====================
-     LOAD DATA
+     LOAD
   ===================== */
 
   async function loadData() {
     setLoading(true);
-
-    const { data: salesData, error: salesError } = await supabase
-      .from("sales")
-      .select(`
-        total,
-        dtf_cost,
-        sale_items (
-          qty,
-          unit_cost
-        )
-      `)
-      .gte("created_at", `${date}T00:00:00`)
-      .lte("created_at", `${date}T23:59:59`);
-
-    const { data: expensesData, error: expensesError } =
-      await supabase
+    const [salesRes, expRes] = await Promise.all([
+      supabase
+        .from("sales")
+        .select("id, order_number, customer_name, total, status, payment_type, created_at")
+        .gte("created_at", `${date}T00:00:00`)
+        .lte("created_at", `${date}T23:59:59`)
+        .order("created_at", { ascending: false }),
+      supabase
         .from("expenses")
-        .select("id,description,amount")
+        .select("id, description, amount")
         .eq("expense_date", date)
-        .order("created_at", { ascending: false });
+        .order("created_at", { ascending: false }),
+    ]);
 
-    if (salesError || expensesError) {
-      alert(
-        salesError?.message ||
-          expensesError?.message ||
-          "Error cargando datos"
-      );
-    } else {
-      setSales(salesData || []);
-      setExpenses(expensesData || []);
-    }
-
+    setSales((salesRes.data ?? []) as Sale[]);
+    setExpenses((expRes.data ?? []) as Expense[]);
     setLoading(false);
   }
 
-  useEffect(() => {
-    loadData();
-  }, [date]);
+  useEffect(() => { loadData(); }, [date]);
 
   /* =====================
-     CALCULOS (MISMA LÓGICA QUE DASHBOARD)
+     CÁLCULOS
   ===================== */
 
-  const ingresos = useMemo(
-    () => sales.reduce((sum, s) => sum + s.total, 0),
-    [sales]
-  );
-
-  const costoProductos = useMemo(
-    () =>
-      sales
-        .flatMap((s) => s.sale_items)
-        .reduce(
-          (sum, i) => sum + i.unit_cost * i.qty,
-          0
-        ),
-    [sales]
-  );
-
-  const dtfTotal = useMemo(
-    () =>
-      sales.reduce(
-        (sum, s) => sum + (s.dtf_cost || 0),
-        0
-      ),
-    [sales]
-  );
-
-  const gastos = useMemo(
-    () =>
-      expenses.reduce(
-        (sum, r) => sum + Number(r.amount || 0),
-        0
-      ),
-    [expenses]
-  );
-
-  const ganancia =
-    ingresos - costoProductos - dtfTotal - gastos;
+  const entregadas = useMemo(() => sales.filter((s) => s.status === "entregado"), [sales]);
+  const totalIngresos = useMemo(() => entregadas.reduce((sum, s) => sum + Number(s.total), 0), [entregadas]);
+  const totalGastos = useMemo(() => expenses.reduce((sum, e) => sum + Number(e.amount), 0), [expenses]);
+  const saldoNeto = totalIngresos - totalGastos;
 
   /* =====================
      ACTIONS
   ===================== */
 
   async function addExpense() {
-    if (!desc.trim() || !amount || amount <= 0) {
-      alert("Ingresa descripción y monto válido");
+    if (!desc.trim() || !amount || Number(amount) <= 0) {
+      alert("Completa la descripción y el monto");
       return;
     }
-
+    setSaving(true);
     const { error } = await supabase.from("expenses").insert({
-      description: desc,
-      amount,
+      description: desc.trim(),
+      amount: Number(amount),
       expense_date: date,
     });
-
-    if (error) {
-      alert(error.message);
-      return;
-    }
-
+    setSaving(false);
+    if (error) { alert(error.message); return; }
     setDesc("");
     setAmount("");
     loadData();
   }
 
   async function deleteExpense(id: string) {
-    const ok = confirm("¿Eliminar este gasto?");
-    if (!ok) return;
-
+    if (!confirm("¿Eliminar este gasto?")) return;
     await supabase.from("expenses").delete().eq("id", id);
     loadData();
   }
@@ -173,163 +110,215 @@ export default function CajaPage() {
   ===================== */
 
   return (
-    <div className="space-y-8">
-      {/* HEADER */}
-      <div>
-        <h1 className="text-2xl font-semibold">Caja diaria</h1>
-        <p className="text-sm opacity-70">
-          Ingresos, gastos y efectivo del día
-        </p>
-      </div>
+    <div className="max-w-3xl mx-auto space-y-6">
 
-      {/* FECHA */}
-      <div className="card p-4 flex items-center gap-3 w-fit">
-        <CalendarDays size={18} />
+      {/* HEADER */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold">Caja diaria</h1>
+          <p className="text-sm text-muted">Ingresos y gastos del día</p>
+        </div>
         <input
           type="date"
-          className="input input-bordered"
+          className="input w-auto"
           value={date}
+          max={today}
           onChange={(e) => setDate(e.target.value)}
         />
       </div>
 
-      {/* RESUMEN */}
+      {/* MÉTRICAS */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <Resumen
+        <MetricCard
           label="Ingresos"
-          value={ingresos}
-          icon={<TrendingUp size={16} />}
-          color="text-green-500"
+          value={`Q${totalIngresos.toFixed(2)}`}
+          sub={`${entregadas.length} venta${entregadas.length !== 1 ? "s" : ""} entregada${entregadas.length !== 1 ? "s" : ""}`}
+          icon={<TrendingUp size={17} />}
+          color="green"
         />
-        <Resumen
-          label="Gastos"
-          value={gastos}
-          icon={<TrendingDown size={16} />}
-          color="text-red-500"
+        <MetricCard
+          label="Gastos operacionales"
+          value={`Q${totalGastos.toFixed(2)}`}
+          sub={`${expenses.length} registro${expenses.length !== 1 ? "s" : ""}`}
+          icon={<TrendingDown size={17} />}
+          color="red"
         />
-        <Resumen
-          label="Caja neta"
-          value={ganancia}
-          icon={<Wallet size={16} />}
-          color={
-            ganancia >= 0
-              ? "text-green-500"
-              : "text-red-500"
-          }
+        <MetricCard
+          label="Saldo neto"
+          value={`Q${saldoNeto.toFixed(2)}`}
+          sub="Ingresos − gastos"
+          icon={<Wallet size={17} />}
+          color={saldoNeto >= 0 ? "green" : "red"}
         />
       </div>
 
-      {/* NUEVO GASTO */}
-      <div className="card p-5 space-y-4">
-        <h2 className="font-medium flex items-center gap-2">
-          <Plus size={16} /> Registrar gasto
+      {/* VENTAS DEL DÍA */}
+      <section className="space-y-3">
+        <h2 className="text-xs font-semibold text-muted uppercase tracking-wider flex items-center gap-2">
+          <ShoppingBag size={14} /> Ventas del día ({sales.length})
+        </h2>
+        <div className="card p-0 overflow-x-auto">
+          {loading ? (
+            <p className="p-5 text-sm text-muted">Cargando…</p>
+          ) : sales.length === 0 ? (
+            <p className="p-5 text-sm text-muted text-center">Sin ventas para esta fecha</p>
+          ) : (
+            <table className="min-w-full text-sm">
+              <thead>
+                <tr className="border-b border-[rgb(var(--border))] text-muted text-xs uppercase tracking-wider">
+                  <th className="p-3 text-left">Pedido</th>
+                  <th className="p-3 text-left">Cliente</th>
+                  <th className="p-3 text-center">Pago</th>
+                  <th className="p-3 text-center">Estado</th>
+                  <th className="p-3 text-right">Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sales.map((s) => (
+                  <tr key={s.id} className="border-t border-[rgb(var(--border))]">
+                    <td className="p-3 font-mono text-xs">{s.order_number}</td>
+                    <td className="p-3 font-medium">{s.customer_name}</td>
+                    <td className="p-3 text-center">
+                      <span className={`badge ${s.payment_type === "contra_entrega" ? "badge-orange" : "badge-green"}`}>
+                        {s.payment_type === "contra_entrega" ? "C/E" : "Pagado"}
+                      </span>
+                    </td>
+                    <td className="p-3 text-center">
+                      <span className={`badge ${
+                        s.status === "entregado"   ? "badge-green"  :
+                        s.status === "no_recibido" ? "badge-red"    :
+                        s.status === "enviado"     ? "badge-blue"   : "badge-yellow"
+                      }`}>
+                        {s.status === "pendiente"   ? "Pendiente"   :
+                         s.status === "enviado"     ? "Enviado"     :
+                         s.status === "entregado"   ? "Entregado"   : "No recibido"}
+                      </span>
+                    </td>
+                    <td className={`p-3 text-right font-medium ${
+                      s.status === "no_recibido" ? "text-muted line-through" :
+                      s.status === "entregado"   ? "text-green-500" : ""
+                    }`}>
+                      Q{Number(s.total).toFixed(2)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="border-t border-[rgb(var(--border))] bg-[rgb(var(--card-soft))] font-semibold">
+                  <td colSpan={4} className="p-3 text-sm">Total entregado</td>
+                  <td className="p-3 text-right text-green-500">Q{totalIngresos.toFixed(2)}</td>
+                </tr>
+              </tfoot>
+            </table>
+          )}
+        </div>
+      </section>
+
+      {/* GASTOS OPERACIONALES */}
+      <section className="space-y-3">
+        <h2 className="text-xs font-semibold text-muted uppercase tracking-wider flex items-center gap-2">
+          <TrendingDown size={14} /> Gastos operacionales
         </h2>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          <input
-            className="input input-bordered"
-            placeholder="Descripción"
-            value={desc}
-            onChange={(e) => setDesc(e.target.value)}
-          />
-          <input
-            type="number"
-            className="input input-bordered"
-            placeholder="Monto"
-            min={0}
-            value={amount}
-            onChange={(e) =>
-              setAmount(
-                e.target.value === ""
-                  ? ""
-                  : Number(e.target.value)
-              )
-            }
-          />
-          <button
-            onClick={addExpense}
-            className="btn btn-primary"
-          >
+        {/* FORM */}
+        <div className="card p-4 flex flex-wrap gap-3 items-end">
+          <div className="flex-1 min-w-40">
+            <label className="text-xs text-muted block mb-1">Descripción</label>
+            <input
+              className="input w-full"
+              placeholder="Ej: Combustible, mensajería…"
+              value={desc}
+              onChange={(e) => setDesc(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && addExpense()}
+            />
+          </div>
+          <div className="w-28">
+            <label className="text-xs text-muted block mb-1">Monto (Q)</label>
+            <input
+              type="number"
+              min={0}
+              step="0.01"
+              className="input w-full"
+              placeholder="0.00"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value === "" ? "" : Number(e.target.value))}
+            />
+          </div>
+          <button onClick={addExpense} disabled={saving} className="btn btn-primary">
+            <Plus size={15} />
             Agregar
           </button>
         </div>
-      </div>
 
-      {/* LISTA GASTOS */}
-      <div className="card p-0 overflow-x-auto">
-        <table className="min-w-full text-sm">
-          <thead>
-            <tr>
-              <th className="p-3 text-left">Descripción</th>
-              <th className="p-3 text-right">Monto</th>
-              <th className="p-3 text-center">Acciones</th>
-            </tr>
-          </thead>
-          <tbody>
-            {expenses.map((e) => (
-              <tr key={e.id} className="border-t">
-                <td className="p-3">{e.description}</td>
-                <td className="p-3 text-right text-red-500">
-                  Q{e.amount.toFixed(2)}
-                </td>
-                <td className="p-3 text-center">
-                  <button
-                    onClick={() => deleteExpense(e.id)}
-                    className="text-red-500 hover:text-red-700"
-                  >
-                    <Trash2 size={16} />
-                  </button>
-                </td>
-              </tr>
-            ))}
+        {/* LISTA */}
+        <div className="card p-0 overflow-x-auto">
+          {expenses.length === 0 ? (
+            <p className="p-5 text-sm text-muted text-center">Sin gastos registrados para esta fecha</p>
+          ) : (
+            <table className="min-w-full text-sm">
+              <thead>
+                <tr className="border-b border-[rgb(var(--border))] text-muted text-xs uppercase tracking-wider">
+                  <th className="p-3 text-left">Descripción</th>
+                  <th className="p-3 text-right">Monto</th>
+                  <th className="p-3 text-center">Acción</th>
+                </tr>
+              </thead>
+              <tbody>
+                {expenses.map((e) => (
+                  <tr key={e.id} className="border-t border-[rgb(var(--border))]">
+                    <td className="p-3">{e.description}</td>
+                    <td className="p-3 text-right font-medium text-red-500">
+                      Q{Number(e.amount).toFixed(2)}
+                    </td>
+                    <td className="p-3 text-center">
+                      <button onClick={() => deleteExpense(e.id)} className="text-red-500 hover:text-red-700 p-1">
+                        <Trash2 size={15} />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="border-t border-[rgb(var(--border))] bg-[rgb(var(--card-soft))] font-semibold">
+                  <td className="p-3">Total gastos</td>
+                  <td className="p-3 text-right text-red-500">Q{totalGastos.toFixed(2)}</td>
+                  <td></td>
+                </tr>
+              </tfoot>
+            </table>
+          )}
+        </div>
+      </section>
 
-            {expenses.length === 0 && (
-              <tr>
-                <td
-                  colSpan={3}
-                  className="p-6 text-center opacity-60"
-                >
-                  No hay gastos este día
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      {loading && (
-        <p className="text-sm opacity-60">
-          Cargando datos…
-        </p>
-      )}
     </div>
   );
 }
 
 /* =====================
-   COMPONENTES
+   COMPONENTE
 ===================== */
 
-function Resumen({
-  label,
-  value,
-  icon,
-  color,
+function MetricCard({
+  label, value, sub, icon, color,
 }: {
   label: string;
-  value: number;
+  value: string;
+  sub: string;
   icon: React.ReactNode;
-  color: string;
+  color: "green" | "red" | "neutral";
 }) {
+  const valueColor =
+    color === "green" ? "text-green-500" :
+    color === "red"   ? "text-red-500"   : "";
+
   return (
-    <div className="card p-5">
-      <div className="flex items-center gap-2 mb-1 text-sm opacity-70">
+    <div className="card p-4 flex flex-col gap-2">
+      <div className="flex items-center gap-2 text-muted text-xs">
         {icon}
         <span>{label}</span>
       </div>
-      <p className={`text-2xl font-semibold ${color}`}>
-        Q{value.toFixed(2)}
-      </p>
+      <div className={`text-2xl font-bold ${valueColor}`}>{value}</div>
+      <p className="text-xs text-muted">{sub}</p>
     </div>
   );
 }

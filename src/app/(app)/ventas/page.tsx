@@ -16,6 +16,7 @@ import { supabase } from "@/lib/supabaseClient";
 
 type SaleItem = {
   id: string;
+  product_id: string | null;
   qty: number;
   unit_price: number;
   unit_cost: number;
@@ -106,7 +107,7 @@ export default function VentasPage() {
         tracking_number, payment_type, concept,
         total, dtf_cost, shipping_cost,
         status, sent_at, created_at,
-        sale_items ( id, qty, unit_price, unit_cost, product_name )
+        sale_items ( id, product_id, qty, unit_price, unit_cost, product_name )
       `)
       .order("created_at", { ascending: false });
 
@@ -161,11 +162,45 @@ export default function VentasPage() {
      DELETE SALE
   ===================== */
 
-  async function deleteSale(id: string) {
-    const ok = confirm("¿Eliminar esta venta? Esta acción no se puede deshacer.");
-    if (!ok) return;
-    await supabase.from("sale_items").delete().eq("sale_id", id);
-    await supabase.from("sales").delete().eq("id", id);
+  async function deleteSale(sale: Sale) {
+    const needsRestoreStock = sale.status === "pendiente" || sale.status === "enviado";
+    const msg = needsRestoreStock
+      ? "¿Eliminar esta venta?\n\n• El stock de los productos volverá al inventario.\n\nEsta acción no se puede deshacer."
+      : "¿Eliminar esta venta? Esta acción no se puede deshacer.";
+    if (!confirm(msg)) return;
+
+    // 1. Restaurar stock si el pedido no fue entregado ni ya devuelto
+    if (needsRestoreStock) {
+      const productIds = sale.sale_items
+        .filter((i) => i.product_id)
+        .map((i) => i.product_id as string);
+
+      if (productIds.length > 0) {
+        const { data: products } = await supabase
+          .from("products")
+          .select("id, stock")
+          .in("id", productIds);
+
+        if (products) {
+          for (const item of sale.sale_items) {
+            if (!item.product_id) continue;
+            const prod = products.find((p) => p.id === item.product_id);
+            if (prod) {
+              await supabase
+                .from("products")
+                .update({ stock: prod.stock + item.qty })
+                .eq("id", item.product_id);
+            }
+          }
+        }
+      }
+    }
+
+    // 2. Eliminar pérdidas asociadas (evita FK constraint)
+    await supabase.from("losses").delete().eq("sale_id", sale.id);
+
+    // 3. Eliminar venta (sale_items se eliminan por CASCADE)
+    await supabase.from("sales").delete().eq("id", sale.id);
     loadSales();
   }
 
@@ -372,7 +407,7 @@ export default function VentasPage() {
                       {/* ACCIONES */}
                       <td className="p-3 text-center">
                         <button
-                          onClick={() => deleteSale(s.id)}
+                          onClick={() => deleteSale(s)}
                           title="Eliminar venta"
                           className="text-red-500 hover:text-red-700 p-1"
                         >
