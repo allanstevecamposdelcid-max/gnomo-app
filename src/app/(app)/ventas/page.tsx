@@ -35,7 +35,6 @@ type Sale = {
   payment_type: PaymentType;
   concept: string | null;
   total: number;
-  dtf_cost: number;
   shipping_cost: number;
   status: Status;
   sent_at: string | null;
@@ -71,7 +70,7 @@ function isOverdue(sale: Sale): boolean {
 
 function getProfit(sale: Sale) {
   const costos = sale.sale_items.reduce((sum, i) => sum + i.unit_cost * i.qty, 0);
-  return sale.total - costos - sale.dtf_cost - sale.shipping_cost;
+  return sale.total - costos - sale.shipping_cost;
 }
 
 /* =====================
@@ -105,7 +104,7 @@ export default function VentasPage() {
       .select(`
         id, order_number, customer_name, customer_phone,
         tracking_number, payment_type, concept,
-        total, dtf_cost, shipping_cost,
+        total, shipping_cost,
         status, sent_at, created_at,
         sale_items ( id, product_id, qty, unit_price, unit_cost, product_name )
       `)
@@ -436,9 +435,8 @@ export default function VentasPage() {
                               {s.concept && (
                                 <p><span className="font-medium text-[rgb(var(--text))]">Concepto:</span> {s.concept}</p>
                               )}
-                              <p><span className="font-medium text-[rgb(var(--text))]">Envío:</span> Q{s.shipping_cost.toFixed(2)}</p>
-                              {s.dtf_cost > 0 && (
-                                <p><span className="font-medium text-[rgb(var(--text))]">Costo DTF:</span> Q{s.dtf_cost.toFixed(2)}</p>
+                              {s.shipping_cost > 0 && (
+                                <p><span className="font-medium text-[rgb(var(--text))]">Envío:</span> Q{s.shipping_cost.toFixed(2)}</p>
                               )}
                               {overdue && (
                                 <p className="text-red-500 font-medium">

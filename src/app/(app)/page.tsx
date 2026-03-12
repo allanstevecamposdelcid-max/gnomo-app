@@ -24,7 +24,6 @@ type SaleItem = { qty: number; unit_cost: number };
 
 type Sale = {
   total: number;
-  dtf_cost: number;
   shipping_cost: number;
   status: "pendiente" | "enviado" | "entregado" | "no_recibido";
   created_at: string;
@@ -66,7 +65,7 @@ export default function DashboardPage() {
     const [salesRes, expensesRes, lowStockRes, netProfitRes] = await Promise.all([
       supabase
         .from("sales")
-        .select(`total, dtf_cost, shipping_cost, status, created_at, sale_items(qty, unit_cost)`),
+        .select(`total, shipping_cost, status, created_at, sale_items(qty, unit_cost)`),
       supabase
         .from("expenses")
         .select("amount, expense_date"),
@@ -115,7 +114,7 @@ export default function DashboardPage() {
     );
     return entregadas.reduce((sum, s) => {
       const costos = s.sale_items.reduce((c, i) => c + i.unit_cost * i.qty, 0);
-      return sum + (s.total - costos - s.dtf_cost - s.shipping_cost);
+      return sum + (s.total - costos - s.shipping_cost);
     }, 0);
   }, [sales, today]);
 

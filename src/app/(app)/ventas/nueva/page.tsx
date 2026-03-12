@@ -55,8 +55,7 @@ export default function NuevaVentaPage() {
   const [concept, setConcept] = useState("");
 
   // Costos
-  const [dtfCost, setDtfCost] = useState(0);
-  const [shippingCost, setShippingCost] = useState(28);
+  const [shippingCost, setShippingCost] = useState<number | "">("");
 
   const [loading, setLoading] = useState(false);
 
@@ -164,8 +163,8 @@ export default function NuevaVentaPage() {
       p_payment_type:    paymentType,
       p_concept:         concept || null,
       p_items:           items,
-      p_dtf_cost:        dtfCost,
-      p_shipping_cost:   shippingCost,
+      p_dtf_cost:        0,
+      p_shipping_cost:   Number(shippingCost) || 0,
     });
 
     setLoading(false);
@@ -309,33 +308,20 @@ export default function NuevaVentaPage() {
           )}
         </section>
 
-        {/* COSTOS */}
+        {/* COSTO DE ENVÍO */}
         <section className="space-y-3">
-          <h2 className="text-sm font-semibold text-muted uppercase tracking-wider">Costos</h2>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs text-muted">Costo envío (Q)</label>
-              <input
-                type="number"
-                min={0}
-                step="0.01"
-                className="input w-full"
-                value={shippingCost}
-                onChange={(e) => setShippingCost(Number(e.target.value))}
-              />
-            </div>
-            <div>
-              <label className="text-xs text-muted">Costo DTF (Q)</label>
-              <input
-                type="number"
-                min={0}
-                step="0.01"
-                className="input w-full"
-                value={dtfCost}
-                onChange={(e) => setDtfCost(Number(e.target.value))}
-              />
-            </div>
+          <h2 className="text-sm font-semibold text-muted uppercase tracking-wider">Envío</h2>
+          <div>
+            <label className="text-xs text-muted">Costo de envío (Q) — opcional</label>
+            <input
+              type="number"
+              min={0}
+              step="0.01"
+              className="input w-full"
+              placeholder="Ej: 28, 35, 50…"
+              value={shippingCost}
+              onChange={(e) => setShippingCost(e.target.value === "" ? "" : Number(e.target.value))}
+            />
           </div>
         </section>
 
