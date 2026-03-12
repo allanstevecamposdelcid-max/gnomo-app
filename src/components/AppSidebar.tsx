@@ -11,6 +11,7 @@ import {
   BarChart3,
   AlertTriangle,
   Receipt,
+  BookUser,
   X,
 } from "lucide-react";
 
@@ -36,6 +37,12 @@ const groups = [
       { href: "/gastos-fijos",  label: "Gastos fijos",       icon: Receipt },
       { href: "/perdidas",      label: "Control pérdidas",   icon: AlertTriangle },
       { href: "/graficas",      label: "Gráficas",           icon: BarChart3 },
+    ],
+  },
+  {
+    label: "Directorio",
+    items: [
+      { href: "/contactos", label: "Contactos", icon: BookUser },
     ],
   },
 ];
