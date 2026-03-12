@@ -68,7 +68,7 @@ export default function InventarioPage() {
     p.price > 0 ? Math.round(((p.price - p.cost) / p.price) * 100) : 0;
 
   return (
-    <div className="max-w-4xl mx-auto space-y-5">
+    <div className="max-w-5xl mx-auto space-y-5">
 
       {/* HEADER */}
       <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -106,52 +106,47 @@ export default function InventarioPage() {
       </div>
 
       {/* TABLA DESKTOP */}
-      <div className="card p-0 overflow-x-auto hidden sm:block">
+      <div className="card p-0 hidden sm:block">
         {loading ? <p className="p-6 text-sm text-muted">Cargando…</p> : (
-          <table className="min-w-full text-sm">
+          <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-[rgb(var(--border))] text-muted text-xs uppercase tracking-wider">
                 <th className="p-3 text-left">Producto</th>
-                <th className="p-3 text-left">Categoría</th>
-                <th className="p-3 text-left">Proveedor</th>
-                <th className="p-3 text-left">SKU</th>
-                <th className="p-3 text-right">Stock</th>
-                <th className="p-3 text-right">Costo</th>
-                <th className="p-3 text-right">Precio</th>
-                <th className="p-3 text-right">Ganancia</th>
+                <th className="p-3 text-left">Categoría / Proveedor</th>
+                <th className="p-3 text-center">Stock</th>
+                <th className="p-3 text-right">Costo · Precio</th>
                 <th className="p-3 text-right">Margen</th>
-                <th className="p-3 text-center">Acciones</th>
+                <th className="p-3 text-center w-20">Acciones</th>
               </tr>
             </thead>
             <tbody>
               {items.map((p) => (
                 <tr key={p.id} className="border-t border-[rgb(var(--border))] hover:bg-[rgb(var(--card-soft))] transition-colors">
-                  <td className="p-3 font-medium">{p.name}</td>
                   <td className="p-3">
-                    {p.categories
-                      ? <span className="badge badge-blue text-xs">{p.categories.name}</span>
-                      : <span className="text-muted text-xs">—</span>}
+                    <p className="font-medium">{p.name}</p>
+                    {p.sku && <p className="text-xs text-muted font-mono mt-0.5">{p.sku}</p>}
                   </td>
                   <td className="p-3">
-                    {p.suppliers
-                      ? <span className="badge badge-orange text-xs flex items-center gap-1 w-fit">
-                          <Store size={9}/>{p.suppliers.name}
-                        </span>
-                      : <span className="text-muted text-xs">—</span>}
+                    <div className="flex flex-col gap-1">
+                      {p.categories && <span className="badge badge-blue text-xs w-fit">{p.categories.name}</span>}
+                      {p.suppliers   && <span className="badge badge-orange text-xs w-fit flex items-center gap-1"><Store size={9}/>{p.suppliers.name}</span>}
+                      {!p.categories && !p.suppliers && <span className="text-muted text-xs">—</span>}
+                    </div>
                   </td>
-                  <td className="p-3 font-mono text-xs text-muted">{p.sku ?? "—"}</td>
-                  <td className="p-3 text-right">
+                  <td className="p-3 text-center">
                     <span className={`badge ${p.stock <= 0 ? "badge-red" : p.stock <= 5 ? "badge-orange" : "badge-green"}`}>
                       {p.stock <= 0 ? "Sin stock" : p.stock}
                     </span>
                   </td>
-                  <td className="p-3 text-right text-muted">Q{p.cost.toFixed(2)}</td>
-                  <td className="p-3 text-right font-medium">Q{p.price.toFixed(2)}</td>
-                  <td className="p-3 text-right text-green-500 font-medium">Q{(p.price - p.cost).toFixed(2)}</td>
                   <td className="p-3 text-right">
-                    <span className={`text-sm font-medium ${margin(p) >= 30 ? "text-green-500" : margin(p) >= 10 ? "text-yellow-500" : "text-red-500"}`}>
+                    <p className="font-medium">Q{p.price.toFixed(2)}</p>
+                    <p className="text-xs text-muted">costo Q{p.cost.toFixed(2)}</p>
+                  </td>
+                  <td className="p-3 text-right">
+                    <p className={`font-semibold ${margin(p) < 10 ? "text-red-500" : margin(p) < 30 ? "text-yellow-500" : ""}`}>
                       {margin(p)}%
-                    </span>
+                    </p>
+                    <p className="text-xs text-muted">+Q{(p.price - p.cost).toFixed(2)}</p>
                   </td>
                   <td className="p-3 text-center">
                     <div className="flex items-center justify-center gap-1">
@@ -162,7 +157,7 @@ export default function InventarioPage() {
                 </tr>
               ))}
               {items.length === 0 && (
-                <tr><td colSpan={10} className="py-10 text-center text-muted">No hay productos</td></tr>
+                <tr><td colSpan={6} className="py-10 text-center text-muted">No hay productos</td></tr>
               )}
             </tbody>
           </table>
@@ -198,8 +193,8 @@ export default function InventarioPage() {
             <div className="flex items-center gap-3 mt-3 text-sm text-muted flex-wrap">
               <span>Costo: <b className="text-[rgb(var(--text))]">Q{p.cost.toFixed(2)}</b></span>
               <span>Precio: <b className="text-[rgb(var(--text))]">Q{p.price.toFixed(2)}</b></span>
-              <span className="text-green-500 font-medium">+Q{(p.price - p.cost).toFixed(2)}</span>
-              <span className={`ml-auto font-semibold ${margin(p) >= 30 ? "text-green-500" : margin(p) >= 10 ? "text-yellow-500" : "text-red-500"}`}>
+              <span className="font-medium">+Q{(p.price - p.cost).toFixed(2)}</span>
+              <span className={`ml-auto font-semibold ${margin(p) < 10 ? "text-red-500" : margin(p) < 30 ? "text-yellow-500" : ""}`}>
                 {margin(p)}%
               </span>
             </div>
@@ -321,7 +316,7 @@ function ProductModal({ title, initial, categories, suppliers, onClose, onSaved 
           </div>
           {Number(price) > 0 && (
             <p className="text-xs text-muted bg-[rgb(var(--card-soft))] rounded-lg px-3 py-2">
-              Margen: <span className="font-semibold text-green-500">{m}%</span>
+              Margen: <span className="font-semibold">{m}%</span>
               {" · "}Ganancia/u: <span className="font-semibold">Q{(Number(price) - Number(cost)).toFixed(2)}</span>
             </p>
           )}
