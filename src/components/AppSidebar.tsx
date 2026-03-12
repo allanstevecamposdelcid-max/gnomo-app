@@ -100,7 +100,7 @@ export default function AppSidebar({ open = false, onClose }: Props) {
       >
         {/* Cabecera del panel */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-[rgb(var(--border))]">
-          <span className="font-bold text-sm">🧙 El Gnomo</span>
+          <span className="font-bold text-sm">El Gnomo</span>
           <button onClick={onClose} className="btn btn-ghost p-1.5" aria-label="Cerrar menú">
             <X size={18} />
           </button>

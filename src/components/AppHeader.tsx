@@ -27,9 +27,8 @@ export default function AppHeader({ onMenuClick }: { onMenuClick?: () => void })
           <Menu size={20} />
         </button>
 
-        <Link href="/" className="flex items-center gap-2 font-bold text-base tracking-tight">
-          <span>🧙</span>
-          <span>El Gnomo</span>
+        <Link href="/" className="font-bold text-base tracking-tight">
+          El Gnomo
         </Link>
       </div>
 
