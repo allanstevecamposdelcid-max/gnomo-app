@@ -7,6 +7,8 @@ import {
 } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 
+type Vendor = { id: string; name: string };
+
 /* =====================
    TYPES
 ===================== */
@@ -75,17 +77,21 @@ function getProfit(sale: Sale) {
 ===================== */
 
 export default function VentasPage() {
-  const [sales, setSales] = useState<Sale[]>([]);
+  const [sales,   setSales]   = useState<Sale[]>([]);
+  const [vendors, setVendors] = useState<Vendor[]>([]);
+  // productId → supplierId map para filtrar por vendedor
+  const [productVendorMap, setProductVendorMap] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [openRows, setOpenRows] = useState<string[]>([]);
 
   // Búsqueda y filtros
-  const [search, setSearch] = useState("");
-  const [filterStatus, setFilterStatus] = useState<Status | "">("");
-  const [filterPayment, setFilterPayment] = useState<PaymentType | "">("");
-  const [filterFrom, setFilterFrom] = useState("");
-  const [filterTo, setFilterTo] = useState("");
-  const [showFilters, setShowFilters] = useState(false);
+  const [search,         setSearch]         = useState("");
+  const [filterStatus,   setFilterStatus]   = useState<Status | "">("");
+  const [filterPayment,  setFilterPayment]  = useState<PaymentType | "">("");
+  const [filterVendor,   setFilterVendor]   = useState("");
+  const [filterFrom,     setFilterFrom]     = useState("");
+  const [filterTo,       setFilterTo]       = useState("");
+  const [showFilters,    setShowFilters]     = useState(false);
 
   const today = new Date().toISOString().slice(0, 10);
   const monthStart = today.slice(0, 7) + "-01";
@@ -117,7 +123,20 @@ export default function VentasPage() {
     setLoading(false);
   }
 
-  useEffect(() => { loadSales(); }, []);
+  async function loadVendors() {
+    const [vendorsRes, productsRes] = await Promise.all([
+      supabase.from("suppliers").select("id, name").order("name"),
+      supabase.from("products").select("id, supplier_id").not("supplier_id", "is", null),
+    ]);
+    setVendors((vendorsRes.data as Vendor[]) ?? []);
+    const map: Record<string, string> = {};
+    for (const p of (productsRes.data ?? []) as { id: string; supplier_id: string }[]) {
+      map[p.id] = p.supplier_id;
+    }
+    setProductVendorMap(map);
+  }
+
+  useEffect(() => { loadSales(); loadVendors(); }, []);
 
   /* =====================
      FILTRADO
@@ -131,6 +150,12 @@ export default function VentasPage() {
       if (filterPayment && s.payment_type !== filterPayment) return false;
       if (filterFrom    && d < filterFrom)                   return false;
       if (filterTo      && d > filterTo)                     return false;
+      if (filterVendor) {
+        const hasVendorProduct = s.sale_items.some(
+          i => i.product_id && productVendorMap[i.product_id] === filterVendor
+        );
+        if (!hasVendorProduct) return false;
+      }
       if (q) {
         const match =
           s.order_number.toLowerCase().includes(q)   ||
@@ -141,7 +166,7 @@ export default function VentasPage() {
       }
       return true;
     });
-  }, [sales, search, filterStatus, filterPayment, filterFrom, filterTo]);
+  }, [sales, search, filterStatus, filterPayment, filterFrom, filterTo, filterVendor, productVendorMap]);
 
   /* =====================
      CHANGE STATUS
@@ -294,6 +319,22 @@ export default function VentasPage() {
             </select>
           </div>
 
+          {vendors.length > 0 && (
+            <div>
+              <label className="text-xs text-muted block mb-1">Vendedor tercero</label>
+              <select
+                className="input"
+                value={filterVendor}
+                onChange={(e) => setFilterVendor(e.target.value)}
+              >
+                <option value="">Todos</option>
+                {vendors.map(v => (
+                  <option key={v.id} value={v.id}>{v.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
           <div>
             <label className="text-xs text-muted block mb-1">Desde</label>
             <input
@@ -317,7 +358,7 @@ export default function VentasPage() {
           <div className="flex gap-2">
             <button className="btn card-soft text-sm" onClick={() => { setFilterFrom(today); setFilterTo(today); }}>Hoy</button>
             <button className="btn card-soft text-sm" onClick={() => { setFilterFrom(monthStart); setFilterTo(today); }}>Este mes</button>
-            <button className="btn card-soft text-sm text-red-500" onClick={() => { setFilterStatus(""); setFilterPayment(""); setFilterFrom(""); setFilterTo(""); }}>
+            <button className="btn card-soft text-sm text-red-500" onClick={() => { setFilterStatus(""); setFilterPayment(""); setFilterVendor(""); setFilterFrom(""); setFilterTo(""); }}>
               Limpiar
             </button>
           </div>

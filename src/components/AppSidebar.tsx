@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard, ShoppingCart, Plus, Boxes,
-  Wallet, TrendingDown, BookUser, X,
+  Wallet, TrendingDown, BookUser, Store, X,
   ChevronLeft, ChevronRight,
 } from "lucide-react";
 
@@ -33,7 +33,8 @@ const groups = [
   {
     label: "Directorio",
     items: [
-      { href: "/contactos", label: "Contactos", icon: BookUser },
+      { href: "/contactos",  label: "Contactos",          icon: BookUser },
+      { href: "/vendedores", label: "Vendedores terceros", icon: Store    },
     ],
   },
 ];
