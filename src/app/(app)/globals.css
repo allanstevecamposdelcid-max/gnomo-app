@@ -8,26 +8,26 @@
 :root {
   --bg:        248 249 250;
   --card:      255 255 255;
-  --card-soft: 241 243 245;
-  --text:      15 23 42;
-  --muted:     100 116 139;
+  --card-soft: 242 243 246;
+  --text:      10 10 12;
+  --muted:     107 114 128;
   --border:    0 0 0 / 0.08;
-  --accent:    22 163 74;
-  --accent-lt: 220 252 231;
+  --accent:    10 10 12;
+  --accent-lt: 0 0 0 / 0.07;
 }
 
 /* ============================================================
    VARIABLES — TEMA OSCURO
 ============================================================ */
 :root.dark {
-  --bg:        9 9 11;
-  --card:      18 18 22;
-  --card-soft: 26 26 32;
-  --text:      241 245 249;
+  --bg:        8 8 10;
+  --card:      16 16 20;
+  --card-soft: 24 24 30;
+  --text:      245 245 250;
   --muted:     148 163 184;
-  --border:    255 255 255 / 0.07;
-  --accent:    34 197 94;
-  --accent-lt: 20 83 45;
+  --border:    255 255 255 / 0.08;
+  --accent:    245 245 250;
+  --accent-lt: 255 255 255 / 0.10;
 }
 
 /* ============================================================
@@ -87,10 +87,9 @@ body {
 
 .btn-primary {
   background-color: rgb(var(--accent));
-  color: #fff;
+  color: rgb(var(--bg));
   border-color: rgb(var(--accent));
 }
-:root.dark .btn-primary { color: #000; }
 .btn-primary:hover:not(:disabled) { filter: brightness(1.08); }
 
 .btn-ghost {
@@ -165,7 +164,7 @@ td { padding: 10px 14px; }
   font-weight: 600;
   white-space: nowrap;
 }
-.badge-green  { background: rgb(var(--accent-lt)); color: rgb(var(--accent)); }
+.badge-green  { background: rgb(var(--accent-lt)); color: rgb(var(--text)); }
 .badge-red    { background: rgb(239 68 68 / 0.12); color: rgb(220 38 38); }
 .badge-yellow { background: rgb(234 179 8 / 0.12); color: rgb(161 98 7); }
 .badge-blue   { background: rgb(59 130 246 / 0.12); color: rgb(37 99 235); }

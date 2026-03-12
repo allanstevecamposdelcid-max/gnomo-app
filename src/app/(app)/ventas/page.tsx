@@ -55,7 +55,7 @@ const STATUS_LABELS: Record<Status, string> = {
 const STATUS_COLORS: Record<Status, string> = {
   pendiente:   "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400",
   enviado:     "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
-  entregado:   "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
+  entregado:   "bg-[rgb(var(--card-soft))] text-[rgb(var(--text))] dark:bg-[rgb(var(--card-soft))]",
   no_recibido: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
 };
 
@@ -69,7 +69,7 @@ function isOverdue(sale: Sale): boolean {
 
 function getProfit(sale: Sale) {
   const costos = sale.sale_items.reduce((sum, i) => sum + i.unit_cost * i.qty, 0);
-  return sale.total - costos - sale.shipping_cost;
+  return sale.total - costos;
 }
 
 /* =====================
@@ -252,7 +252,7 @@ export default function VentasPage() {
         </div>
         <button
           onClick={() => setShowFilters((v) => !v)}
-          className={`btn card-soft flex items-center gap-2 text-sm ${showFilters ? "text-green-400" : ""}`}
+          className={`btn card-soft flex items-center gap-2 text-sm ${showFilters ? "text-[rgb(var(--text))]" : ""}`}
         >
           <Filter size={15} />
           Filtros
@@ -453,7 +453,7 @@ export default function VentasPage() {
                       <td className={`p-3 text-right font-medium ${
                         s.status === "no_recibido"
                           ? "text-red-500 line-through opacity-60"
-                          : profit >= 0 ? "text-green-500" : "text-red-500"
+                          : profit < 0 ? "text-red-500" : ""
                       }`}>
                         Q{profit.toFixed(2)}
                       </td>

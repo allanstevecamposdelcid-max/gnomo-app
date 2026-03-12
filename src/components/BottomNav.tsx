@@ -30,9 +30,9 @@ export default function BottomNav({ onMenuClick }: { onMenuClick?: () => void })
               href={href}
               className={`flex flex-col items-center gap-0.5 px-3 py-2 rounded-xl transition-colors text-[11px] font-medium ${
                 center
-                  ? "bg-green-500 text-white rounded-2xl px-4 py-2.5 -mt-4 shadow-lg shadow-green-500/30"
+                  ? "bg-[rgb(var(--text))] text-[rgb(var(--bg))] rounded-2xl px-4 py-2.5 -mt-4 shadow-lg"
                   : active
-                  ? "text-green-500"
+                  ? "text-[rgb(var(--text))]"
                   : "text-muted"
               }`}
             >
