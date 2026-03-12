@@ -1,28 +1,31 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Wallet, TrendingUp, TrendingDown, ShoppingBag, Plus, Trash2 } from "lucide-react";
+import {
+  Wallet, TrendingUp, TrendingDown, ShoppingBag,
+  Plus, Trash2, PackageX, DollarSign,
+} from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 
 /* =====================
    TYPES
 ===================== */
 
+type SaleItem = { qty: number; unit_cost: number };
+
 type Sale = {
   id: string;
   order_number: string;
   customer_name: string;
   total: number;
+  shipping_cost: number;
   status: "pendiente" | "enviado" | "entregado" | "no_recibido";
   payment_type: "pagado" | "contra_entrega";
   created_at: string;
+  sale_items: SaleItem[];
 };
 
-type Expense = {
-  id: string;
-  description: string;
-  amount: number;
-};
+type Expense = { id: string; description: string; amount: number };
 
 /* =====================
    PAGE
@@ -36,7 +39,6 @@ export default function CajaPage() {
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [loading, setLoading] = useState(false);
 
-  // Form gasto
   const [desc, setDesc] = useState("");
   const [amount, setAmount] = useState<number | "">("");
   const [saving, setSaving] = useState(false);
@@ -50,7 +52,11 @@ export default function CajaPage() {
     const [salesRes, expRes] = await Promise.all([
       supabase
         .from("sales")
-        .select("id, order_number, customer_name, total, status, payment_type, created_at")
+        .select(`
+          id, order_number, customer_name,
+          total, shipping_cost, status, payment_type, created_at,
+          sale_items ( qty, unit_cost )
+        `)
         .gte("created_at", `${date}T00:00:00`)
         .lte("created_at", `${date}T23:59:59`)
         .order("created_at", { ascending: false }),
@@ -60,8 +66,7 @@ export default function CajaPage() {
         .eq("expense_date", date)
         .order("created_at", { ascending: false }),
     ]);
-
-    setSales((salesRes.data ?? []) as Sale[]);
+    setSales((salesRes.data ?? []) as unknown as Sale[]);
     setExpenses((expRes.data ?? []) as Expense[]);
     setLoading(false);
   }
@@ -69,13 +74,55 @@ export default function CajaPage() {
   useEffect(() => { loadData(); }, [date]);
 
   /* =====================
-     CÁLCULOS
+     CÁLCULOS REALES
   ===================== */
 
-  const entregadas = useMemo(() => sales.filter((s) => s.status === "entregado"), [sales]);
-  const totalIngresos = useMemo(() => entregadas.reduce((sum, s) => sum + Number(s.total), 0), [entregadas]);
-  const totalGastos = useMemo(() => expenses.reduce((sum, e) => sum + Number(e.amount), 0), [expenses]);
-  const saldoNeto = totalIngresos - totalGastos;
+  // Solo ventas entregadas cuentan como ingreso real
+  const entregadas = useMemo(
+    () => sales.filter((s) => s.status === "entregado"),
+    [sales]
+  );
+
+  // Ventas brutas (lo que cobró al cliente)
+  const ventasBrutas = useMemo(
+    () => entregadas.reduce((sum, s) => sum + Number(s.total), 0),
+    [entregadas]
+  );
+
+  // Costo total de productos vendidos
+  const costoProductos = useMemo(
+    () => entregadas.reduce((sum, s) =>
+      sum + s.sale_items.reduce((c, i) => c + Number(i.unit_cost) * Number(i.qty), 0), 0),
+    [entregadas]
+  );
+
+  // Costo total de envíos de ventas entregadas
+  const costoEnvios = useMemo(
+    () => entregadas.reduce((sum, s) => sum + Number(s.shipping_cost || 0), 0),
+    [entregadas]
+  );
+
+  // Ganancia bruta = ventas - costo productos - costo envíos
+  const gananciaBruta = ventasBrutas - costoProductos - costoEnvios;
+
+  // Gastos operacionales del día (caja)
+  const gastosOp = useMemo(
+    () => expenses.reduce((sum, e) => sum + Number(e.amount), 0),
+    [expenses]
+  );
+
+  // Ganancia neta = ganancia bruta - gastos operacionales
+  const gananciaNeta = gananciaBruta - gastosOp;
+
+  // Pedidos no recibidos del día (pérdida de envío)
+  const noRecibidos = useMemo(
+    () => sales.filter((s) => s.status === "no_recibido"),
+    [sales]
+  );
+  const perdidaEnvios = useMemo(
+    () => noRecibidos.reduce((sum, s) => sum + Number(s.shipping_cost || 0), 0),
+    [noRecibidos]
+  );
 
   /* =====================
      ACTIONS
@@ -116,7 +163,7 @@ export default function CajaPage() {
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-semibold">Caja diaria</h1>
-          <p className="text-sm text-muted">Ingresos y gastos del día</p>
+          <p className="text-sm text-muted">Resumen financiero del día</p>
         </div>
         <input
           type="date"
@@ -127,29 +174,58 @@ export default function CajaPage() {
         />
       </div>
 
-      {/* MÉTRICAS */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      {/* MÉTRICAS PRINCIPALES */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <MetricCard
-          label="Ingresos"
-          value={`Q${totalIngresos.toFixed(2)}`}
-          sub={`${entregadas.length} venta${entregadas.length !== 1 ? "s" : ""} entregada${entregadas.length !== 1 ? "s" : ""}`}
-          icon={<TrendingUp size={17} />}
-          color="green"
+          label="Ventas brutas"
+          value={`Q${ventasBrutas.toFixed(2)}`}
+          sub={`${entregadas.length} entregada${entregadas.length !== 1 ? "s" : ""}`}
+          icon={<ShoppingBag size={15} />}
+          color="neutral"
         />
         <MetricCard
-          label="Gastos operacionales"
-          value={`Q${totalGastos.toFixed(2)}`}
-          sub={`${expenses.length} registro${expenses.length !== 1 ? "s" : ""}`}
-          icon={<TrendingDown size={17} />}
+          label="Costo productos"
+          value={`Q${costoProductos.toFixed(2)}`}
+          sub={`+ envíos Q${costoEnvios.toFixed(2)}`}
+          icon={<TrendingDown size={15} />}
           color="red"
         />
         <MetricCard
-          label="Saldo neto"
-          value={`Q${saldoNeto.toFixed(2)}`}
-          sub="Ingresos − gastos"
-          icon={<Wallet size={17} />}
-          color={saldoNeto >= 0 ? "green" : "red"}
+          label="Ganancia bruta"
+          value={`Q${gananciaBruta.toFixed(2)}`}
+          sub="Ventas − costos"
+          icon={<TrendingUp size={15} />}
+          color={gananciaBruta >= 0 ? "green" : "red"}
         />
+        <MetricCard
+          label="Ganancia neta"
+          value={`Q${gananciaNeta.toFixed(2)}`}
+          sub="Bruta − gastos op."
+          icon={<Wallet size={15} />}
+          color={gananciaNeta >= 0 ? "green" : "red"}
+        />
+      </div>
+
+      {/* DESGLOSE FINANCIERO */}
+      <div className="card p-5 space-y-3">
+        <h2 className="text-sm font-semibold">Desglose del día</h2>
+        <div className="space-y-2 text-sm">
+          <Row label="Ventas brutas (cobrado al cliente)"   value={ventasBrutas}    sign="+" color="green" />
+          <Row label="Costo de productos vendidos"          value={costoProductos}  sign="-" color="red" />
+          <Row label="Costo de envíos (entregados)"         value={costoEnvios}     sign="-" color="red" />
+          <div className="border-t border-[rgb(var(--border))] pt-2">
+            <Row label="Ganancia bruta"                     value={gananciaBruta}   sign=""  color={gananciaBruta >= 0 ? "green" : "red"} bold />
+          </div>
+          <Row label="Gastos operacionales del día"         value={gastosOp}        sign="-" color="red" />
+          <div className="border-t border-[rgb(var(--border))] pt-2">
+            <Row label="Ganancia neta del día"              value={gananciaNeta}    sign=""  color={gananciaNeta >= 0 ? "green" : "red"} bold />
+          </div>
+          {perdidaEnvios > 0 && (
+            <div className="border-t border-[rgb(var(--border))] pt-2">
+              <Row label={`Pérdida por no recibidos (${noRecibidos.length})`} value={perdidaEnvios} sign="-" color="red" />
+            </div>
+          )}
+        </div>
       </div>
 
       {/* VENTAS DEL DÍA */}
@@ -170,43 +246,61 @@ export default function CajaPage() {
                   <th className="p-3 text-left">Cliente</th>
                   <th className="p-3 text-center">Pago</th>
                   <th className="p-3 text-center">Estado</th>
+                  <th className="p-3 text-right">Costo</th>
                   <th className="p-3 text-right">Total</th>
+                  <th className="p-3 text-right">Ganancia</th>
                 </tr>
               </thead>
               <tbody>
-                {sales.map((s) => (
-                  <tr key={s.id} className="border-t border-[rgb(var(--border))]">
-                    <td className="p-3 font-mono text-xs">{s.order_number}</td>
-                    <td className="p-3 font-medium">{s.customer_name}</td>
-                    <td className="p-3 text-center">
-                      <span className={`badge ${s.payment_type === "contra_entrega" ? "badge-orange" : "badge-green"}`}>
-                        {s.payment_type === "contra_entrega" ? "C/E" : "Pagado"}
-                      </span>
-                    </td>
-                    <td className="p-3 text-center">
-                      <span className={`badge ${
-                        s.status === "entregado"   ? "badge-green"  :
-                        s.status === "no_recibido" ? "badge-red"    :
-                        s.status === "enviado"     ? "badge-blue"   : "badge-yellow"
+                {sales.map((s) => {
+                  const costo = s.sale_items.reduce((c, i) => c + Number(i.unit_cost) * Number(i.qty), 0);
+                  const ganancia = Number(s.total) - costo - Number(s.shipping_cost || 0);
+                  const entregado = s.status === "entregado";
+                  const noRec = s.status === "no_recibido";
+                  return (
+                    <tr key={s.id} className="border-t border-[rgb(var(--border))]">
+                      <td className="p-3 font-mono text-xs">{s.order_number}</td>
+                      <td className="p-3 font-medium">{s.customer_name}</td>
+                      <td className="p-3 text-center">
+                        <span className={`badge ${s.payment_type === "contra_entrega" ? "badge-orange" : "badge-green"}`}>
+                          {s.payment_type === "contra_entrega" ? "C/E" : "Pagado"}
+                        </span>
+                      </td>
+                      <td className="p-3 text-center">
+                        <span className={`badge ${
+                          entregado ? "badge-green"  :
+                          noRec     ? "badge-red"    :
+                          s.status === "enviado" ? "badge-blue" : "badge-yellow"
+                        }`}>
+                          {s.status === "pendiente"   ? "Pendiente"   :
+                           s.status === "enviado"     ? "Enviado"     :
+                           entregado                  ? "Entregado"   : "No recibido"}
+                        </span>
+                      </td>
+                      <td className="p-3 text-right text-muted text-xs">
+                        Q{(costo + Number(s.shipping_cost || 0)).toFixed(2)}
+                      </td>
+                      <td className={`p-3 text-right font-medium ${noRec ? "text-muted line-through" : ""}`}>
+                        Q{Number(s.total).toFixed(2)}
+                      </td>
+                      <td className={`p-3 text-right font-medium ${
+                        noRec     ? "text-red-500 line-through" :
+                        !entregado ? "text-muted" :
+                        ganancia >= 0 ? "text-green-500" : "text-red-500"
                       }`}>
-                        {s.status === "pendiente"   ? "Pendiente"   :
-                         s.status === "enviado"     ? "Enviado"     :
-                         s.status === "entregado"   ? "Entregado"   : "No recibido"}
-                      </span>
-                    </td>
-                    <td className={`p-3 text-right font-medium ${
-                      s.status === "no_recibido" ? "text-muted line-through" :
-                      s.status === "entregado"   ? "text-green-500" : ""
-                    }`}>
-                      Q{Number(s.total).toFixed(2)}
-                    </td>
-                  </tr>
-                ))}
+                        {entregado || noRec ? `Q${ganancia.toFixed(2)}` : "—"}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
               <tfoot>
-                <tr className="border-t border-[rgb(var(--border))] bg-[rgb(var(--card-soft))] font-semibold">
-                  <td colSpan={4} className="p-3 text-sm">Total entregado</td>
-                  <td className="p-3 text-right text-green-500">Q{totalIngresos.toFixed(2)}</td>
+                <tr className="border-t border-[rgb(var(--border))] bg-[rgb(var(--card-soft))] font-semibold text-sm">
+                  <td colSpan={5} className="p-3">Total entregado</td>
+                  <td className="p-3 text-right text-green-500">Q{ventasBrutas.toFixed(2)}</td>
+                  <td className={`p-3 text-right ${gananciaBruta >= 0 ? "text-green-500" : "text-red-500"}`}>
+                    Q{gananciaBruta.toFixed(2)}
+                  </td>
                 </tr>
               </tfoot>
             </table>
@@ -217,10 +311,9 @@ export default function CajaPage() {
       {/* GASTOS OPERACIONALES */}
       <section className="space-y-3">
         <h2 className="text-xs font-semibold text-muted uppercase tracking-wider flex items-center gap-2">
-          <TrendingDown size={14} /> Gastos operacionales
+          <DollarSign size={14} /> Gastos operacionales
         </h2>
 
-        {/* FORM */}
         <div className="card p-4 flex flex-wrap gap-3 items-end">
           <div className="flex-1 min-w-40">
             <label className="text-xs text-muted block mb-1">Descripción</label>
@@ -235,9 +328,7 @@ export default function CajaPage() {
           <div className="w-28">
             <label className="text-xs text-muted block mb-1">Monto (Q)</label>
             <input
-              type="number"
-              min={0}
-              step="0.01"
+              type="number" min={0} step="0.01"
               className="input w-full"
               placeholder="0.00"
               value={amount}
@@ -245,12 +336,10 @@ export default function CajaPage() {
             />
           </div>
           <button onClick={addExpense} disabled={saving} className="btn btn-primary">
-            <Plus size={15} />
-            Agregar
+            <Plus size={15} /> Agregar
           </button>
         </div>
 
-        {/* LISTA */}
         <div className="card p-0 overflow-x-auto">
           {expenses.length === 0 ? (
             <p className="p-5 text-sm text-muted text-center">Sin gastos registrados para esta fecha</p>
@@ -281,7 +370,7 @@ export default function CajaPage() {
               <tfoot>
                 <tr className="border-t border-[rgb(var(--border))] bg-[rgb(var(--card-soft))] font-semibold">
                   <td className="p-3">Total gastos</td>
-                  <td className="p-3 text-right text-red-500">Q{totalGastos.toFixed(2)}</td>
+                  <td className="p-3 text-right text-red-500">Q{gastosOp.toFixed(2)}</td>
                   <td></td>
                 </tr>
               </tfoot>
@@ -290,35 +379,48 @@ export default function CajaPage() {
         </div>
       </section>
 
+      {/* ALERTA NO RECIBIDOS */}
+      {noRecibidos.length > 0 && (
+        <div className="flex items-start gap-3 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-red-500 text-sm">
+          <PackageX size={16} className="shrink-0 mt-0.5" />
+          <div>
+            <p className="font-semibold">{noRecibidos.length} pedido{noRecibidos.length !== 1 ? "s" : ""} no recibido{noRecibidos.length !== 1 ? "s" : ""} hoy</p>
+            <p className="text-xs mt-0.5 opacity-80">Pérdida por envíos: Q{perdidaEnvios.toFixed(2)}</p>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
 
 /* =====================
-   COMPONENTE
+   COMPONENTES
 ===================== */
 
-function MetricCard({
-  label, value, sub, icon, color,
-}: {
-  label: string;
-  value: string;
-  sub: string;
-  icon: React.ReactNode;
-  color: "green" | "red" | "neutral";
+function MetricCard({ label, value, sub, icon, color }: {
+  label: string; value: string; sub: string;
+  icon: React.ReactNode; color: "green" | "red" | "neutral";
 }) {
-  const valueColor =
-    color === "green" ? "text-green-500" :
-    color === "red"   ? "text-red-500"   : "";
-
+  const valueColor = color === "green" ? "text-green-500" : color === "red" ? "text-red-500" : "";
   return (
-    <div className="card p-4 flex flex-col gap-2">
-      <div className="flex items-center gap-2 text-muted text-xs">
-        {icon}
-        <span>{label}</span>
-      </div>
-      <div className={`text-2xl font-bold ${valueColor}`}>{value}</div>
+    <div className="card p-4 flex flex-col gap-1">
+      <div className="flex items-center gap-2 text-muted text-xs">{icon}<span>{label}</span></div>
+      <div className={`text-xl font-bold ${valueColor}`}>{value}</div>
       <p className="text-xs text-muted">{sub}</p>
+    </div>
+  );
+}
+
+function Row({ label, value, sign, color, bold }: {
+  label: string; value: number; sign: string;
+  color: "green" | "red"; bold?: boolean;
+}) {
+  const c = color === "green" ? "text-green-500" : "text-red-500";
+  return (
+    <div className={`flex justify-between items-center ${bold ? "font-semibold" : ""}`}>
+      <span className={bold ? "" : "text-muted"}>{label}</span>
+      <span className={c}>{sign} Q{value.toFixed(2)}</span>
     </div>
   );
 }
