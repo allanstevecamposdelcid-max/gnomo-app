@@ -2,11 +2,8 @@
 
 import { Fragment, useEffect, useMemo, useState } from "react";
 import {
-  ChevronDown,
-  ChevronRight,
-  Trash2,
-  AlertTriangle,
-  Filter,
+  ChevronDown, ChevronRight, Trash2,
+  AlertTriangle, Filter, Search,
 } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 
@@ -82,7 +79,8 @@ export default function VentasPage() {
   const [loading, setLoading] = useState(true);
   const [openRows, setOpenRows] = useState<string[]>([]);
 
-  // Filtros
+  // Búsqueda y filtros
+  const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState<Status | "">("");
   const [filterPayment, setFilterPayment] = useState<PaymentType | "">("");
   const [filterFrom, setFilterFrom] = useState("");
@@ -126,15 +124,24 @@ export default function VentasPage() {
   ===================== */
 
   const filtered = useMemo(() => {
+    const q = search.toLowerCase().trim();
     return sales.filter((s) => {
       const d = s.created_at.slice(0, 10);
       if (filterStatus  && s.status       !== filterStatus)  return false;
       if (filterPayment && s.payment_type !== filterPayment) return false;
       if (filterFrom    && d < filterFrom)                   return false;
       if (filterTo      && d > filterTo)                     return false;
+      if (q) {
+        const match =
+          s.order_number.toLowerCase().includes(q)   ||
+          s.customer_name.toLowerCase().includes(q)  ||
+          (s.customer_phone ?? "").includes(q)        ||
+          s.tracking_number.toLowerCase().includes(q);
+        if (!match) return false;
+      }
       return true;
     });
-  }, [sales, filterStatus, filterPayment, filterFrom, filterTo]);
+  }, [sales, search, filterStatus, filterPayment, filterFrom, filterTo]);
 
   /* =====================
      CHANGE STATUS
@@ -212,7 +219,7 @@ export default function VentasPage() {
   return (
     <div className="space-y-5">
       {/* HEADER */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
         <div>
           <h1 className="text-2xl font-semibold">Libro de ventas</h1>
           <p className="text-sm text-muted">{filtered.length} pedido{filtered.length !== 1 ? "s" : ""}</p>
@@ -224,6 +231,25 @@ export default function VentasPage() {
           <Filter size={15} />
           Filtros
         </button>
+      </div>
+
+      {/* BUSCADOR */}
+      <div className="relative">
+        <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted pointer-events-none" />
+        <input
+          className="input w-full pl-9"
+          placeholder="Buscar por pedido, cliente, teléfono o número de guía…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+        {search && (
+          <button
+            onClick={() => setSearch("")}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-[rgb(var(--text))] text-xs"
+          >
+            ✕
+          </button>
+        )}
       </div>
 
       {/* ALERTA VENCIDOS */}
