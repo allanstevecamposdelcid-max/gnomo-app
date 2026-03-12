@@ -1,9 +1,10 @@
 import "./globals.css";
 import { ThemeProvider } from "@/components/ThemeProvider";
+import Shell from "@/components/Shell";
 
 export const metadata = {
-  title: "Sistema Contable",
-  description: "Sistema de ventas y control diario",
+  title: "El Gnomo",
+  description: "Sistema de gestión e-commerce",
 };
 
 export default function RootLayout({
@@ -13,8 +14,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="es" suppressHydrationWarning>
-      <body className="min-h-screen">
-        <ThemeProvider>{children}</ThemeProvider>
+      <body className="min-h-screen flex flex-col">
+        <ThemeProvider>
+          <Shell>{children}</Shell>
+        </ThemeProvider>
       </body>
     </html>
   );

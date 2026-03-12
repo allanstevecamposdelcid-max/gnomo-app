@@ -2,41 +2,33 @@ import VentasCharts from "@/components/VentasCharts";
 import { supabase } from "@/lib/supabaseClient";
 
 export default async function GraficasPage() {
-  // Ventas por día
-  const { data: porDia } = await supabase
+  const { data: rawData } = await supabase
     .from("sales")
-    .select("created_at, total");
+    .select("created_at, total")
+    .eq("status", "entregado")
+    .order("created_at");
 
-  const ventasPorDia =
-    porDia?.map((v) => ({
-      date: new Date(v.created_at).toLocaleDateString(),
-      total: v.total,
-    })) ?? [];
+  const porDia = (rawData ?? []).map((v) => ({
+    date: new Date(v.created_at).toLocaleDateString("es-GT"),
+    total: v.total,
+  }));
 
-  // Ventas por mes
-  const ventasPorMes = ventasPorDia.reduce<Record<string, number>>(
-    (acc, v) => {
-      const month = v.date.slice(3); // MM/YYYY
-      acc[month] = (acc[month] || 0) + v.total;
-      return acc;
-    },
-    {}
-  );
+  const mesMap = porDia.reduce<Record<string, number>>((acc, v) => {
+    const parts = v.date.split("/");
+    const key = parts.length >= 3 ? `${parts[1]}/${parts[2]}` : v.date;
+    acc[key] = (acc[key] || 0) + v.total;
+    return acc;
+  }, {});
 
-  const porMes = Object.entries(ventasPorMes).map(
-    ([month, total]) => ({
-      month,
-      total,
-    })
-  );
+  const porMes = Object.entries(mesMap).map(([month, total]) => ({ month, total }));
 
   return (
-    <main className="max-w-6xl mx-auto px-6 py-10">
-      <h1 className="text-2xl font-semibold mb-8">
-        Gráficas
-      </h1>
-
-      <VentasCharts porDia={ventasPorDia} porMes={porMes} />
-    </main>
+    <div className="max-w-4xl mx-auto space-y-6">
+      <div>
+        <h1 className="text-2xl font-semibold">Gráficas</h1>
+        <p className="text-sm text-muted">Solo pedidos entregados</p>
+      </div>
+      <VentasCharts porDia={porDia} porMes={porMes} />
+    </div>
   );
 }

@@ -2,118 +2,209 @@
 @import "tailwindcss/theme";
 @import "tailwindcss/utilities";
 
-/* ======================
-   VARIABLES DE TEMA
-   ====================== */
-
-/* 🌞 TEMA CLARO (DEFAULT) */
+/* ============================================================
+   VARIABLES — TEMA CLARO
+============================================================ */
 :root {
-  --bg: 255 255 255;
-  --card: 245 245 247;
-  --card-soft: 235 235 238;
-
-  --text: 23 23 23;
-  --muted: 110 110 120;
-
-  --border: 0 0 0 / 0.08;
-  --accent: 34 197 94;
+  --bg:        248 249 250;
+  --card:      255 255 255;
+  --card-soft: 241 243 245;
+  --text:      15 23 42;
+  --muted:     100 116 139;
+  --border:    0 0 0 / 0.08;
+  --accent:    22 163 74;
+  --accent-lt: 220 252 231;
 }
 
-/* 🌙 TEMA OSCURO — CLAVE: MISMO SCOPE */
+/* ============================================================
+   VARIABLES — TEMA OSCURO
+============================================================ */
 :root.dark {
-  --bg: 10 10 11;
-  --card: 17 17 20;
-  --card-soft: 21 21 25;
-
-  --text: 235 235 235;
-  --muted: 160 160 170;
-
-  --border: 255 255 255 / 0.08;
-  --accent: 34 197 94;
+  --bg:        9 9 11;
+  --card:      18 18 22;
+  --card-soft: 26 26 32;
+  --text:      241 245 249;
+  --muted:     148 163 184;
+  --border:    255 255 255 / 0.07;
+  --accent:    34 197 94;
+  --accent-lt: 20 83 45;
 }
 
-/* ======================
+/* ============================================================
    BASE
-   ====================== */
-
-html,
-body {
-  height: 100%;
-}
+============================================================ */
+*, *::before, *::after { box-sizing: border-box; }
+html, body { height: 100%; }
 
 body {
   background-color: rgb(var(--bg));
   color: rgb(var(--text));
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text",
-    "Helvetica Neue", Arial, sans-serif;
+    "Segoe UI", "Helvetica Neue", Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
+  font-size: 15px;
+  line-height: 1.6;
 }
 
-/* ======================
-   COMPONENTES
-   ====================== */
-
+/* ============================================================
+   CARDS
+============================================================ */
 .card {
   background-color: rgb(var(--card));
-  border-radius: 16px;
+  border-radius: 14px;
   border: 1px solid rgb(var(--border));
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04);
 }
-
 .card-soft {
   background-color: rgb(var(--card-soft));
-  border-radius: 14px;
+  border-radius: 10px;
   border: 1px solid rgb(var(--border));
 }
 
-/* ======================
+/* ============================================================
    TEXTO
-   ====================== */
+============================================================ */
+.text-muted { color: rgb(var(--muted)); }
 
-.text-muted {
-  color: rgb(var(--muted));
-}
-
-/* ======================
+/* ============================================================
    BOTONES
-   ====================== */
-
+============================================================ */
 .btn {
-  border-radius: 14px;
-  padding: 10px 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border-radius: 10px;
+  padding: 8px 16px;
+  font-size: 14px;
   font-weight: 500;
-  transition: all 0.2s ease;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  border: 1px solid transparent;
+  white-space: nowrap;
+  user-select: none;
 }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .btn-primary {
   background-color: rgb(var(--accent));
-  color: black;
+  color: #fff;
+  border-color: rgb(var(--accent));
 }
+:root.dark .btn-primary { color: #000; }
+.btn-primary:hover:not(:disabled) { filter: brightness(1.08); }
 
-.btn-primary:hover {
-  opacity: 0.9;
+.btn-ghost {
+  background-color: transparent;
+  color: rgb(var(--muted));
 }
-
-/* ======================
-   INPUTS
-   ====================== */
-
-input,
-select {
+.btn-ghost:hover:not(:disabled) {
   background-color: rgb(var(--card-soft));
-  border: 1px solid rgb(var(--border));
-  border-radius: 12px;
-  padding: 10px 12px;
-  outline: none;
   color: rgb(var(--text));
 }
 
-input::placeholder {
-  color: rgb(var(--muted));
+.btn.card-soft, .card-soft.btn {
+  background-color: rgb(var(--card-soft));
+  color: rgb(var(--text));
+}
+.btn.card-soft:hover, .card-soft.btn:hover { filter: brightness(0.96); }
+:root.dark .btn.card-soft:hover, :root.dark .card-soft.btn:hover { filter: brightness(1.12); }
+
+/* ============================================================
+   INPUTS / SELECT / TEXTAREA
+============================================================ */
+input, select, textarea {
+  background-color: rgb(var(--card-soft));
+  border: 1.5px solid rgb(var(--border));
+  border-radius: 10px;
+  padding: 9px 12px;
+  outline: none;
+  color: rgb(var(--text));
+  font-size: 14px;
+  font-family: inherit;
+  width: 100%;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+input::placeholder, textarea::placeholder { color: rgb(var(--muted)); }
+input:focus, select:focus, textarea:focus {
+  border-color: rgb(var(--accent));
+  box-shadow: 0 0 0 3px rgb(var(--accent) / 0.15);
+}
+select {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2.5'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 32px;
+  cursor: pointer;
 }
 
-input:focus,
-select:focus {
-  border-color: rgb(var(--accent));
-  box-shadow: 0 0 0 2px rgb(var(--accent) / 0.2);
+/* ============================================================
+   TABLA
+============================================================ */
+table { border-collapse: collapse; width: 100%; }
+th {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: rgb(var(--muted));
+  text-align: left;
+  padding: 10px 14px;
 }
+td { padding: 10px 14px; }
+
+/* ============================================================
+   BADGES
+============================================================ */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.badge-green  { background: rgb(var(--accent-lt)); color: rgb(var(--accent)); }
+.badge-red    { background: rgb(239 68 68 / 0.12); color: rgb(220 38 38); }
+.badge-yellow { background: rgb(234 179 8 / 0.12); color: rgb(161 98 7); }
+.badge-blue   { background: rgb(59 130 246 / 0.12); color: rgb(37 99 235); }
+.badge-orange { background: rgb(249 115 22 / 0.12); color: rgb(194 65 12); }
+.badge-gray   { background: rgb(var(--card-soft)); color: rgb(var(--muted)); }
+:root.dark .badge-red    { color: rgb(248 113 113); }
+:root.dark .badge-yellow { color: rgb(250 204 21); }
+:root.dark .badge-blue   { color: rgb(96 165 250); }
+:root.dark .badge-orange { color: rgb(251 146 60); }
+
+/* ============================================================
+   MODAL
+============================================================ */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgb(0 0 0 / 0.5);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  z-index: 50;
+  padding: 16px;
+}
+@media (min-width: 640px) { .modal-overlay { align-items: center; } }
+.modal-box {
+  background-color: rgb(var(--card));
+  border-radius: 18px;
+  border: 1px solid rgb(var(--border));
+  padding: 24px;
+  width: 100%;
+  max-width: 480px;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+/* ============================================================
+   SCROLLBAR
+============================================================ */
+::-webkit-scrollbar          { width: 5px; height: 5px; }
+::-webkit-scrollbar-track    { background: transparent; }
+::-webkit-scrollbar-thumb    { background: rgb(var(--muted) / 0.25); border-radius: 99px; }
+::-webkit-scrollbar-thumb:hover { background: rgb(var(--muted) / 0.45); }

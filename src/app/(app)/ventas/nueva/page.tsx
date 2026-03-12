@@ -7,7 +7,9 @@ import {
   Phone,
   Package,
   Save,
-  DollarSign,
+  Truck,
+  FileText,
+  CreditCard,
   Trash2,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -41,13 +43,21 @@ export default function NuevaVentaPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [search, setSearch] = useState("");
   const [openProducts, setOpenProducts] = useState(false);
-
   const [cart, setCart] = useState<CartItem[]>([]);
 
+  // Datos del cliente
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
 
+  // Campos nuevos obligatorios
+  const [trackingNumber, setTrackingNumber] = useState("");
+  const [paymentType, setPaymentType] = useState<"pagado" | "contra_entrega">("pagado");
+  const [concept, setConcept] = useState("");
+
+  // Costos
   const [dtfCost, setDtfCost] = useState(0);
+  const [shippingCost, setShippingCost] = useState(28);
+
   const [loading, setLoading] = useState(false);
 
   /* ================= LOAD PRODUCTS ================= */
@@ -67,10 +77,7 @@ export default function NuevaVentaPage() {
     setProducts((data as Product[]) || []);
   }
 
-  useEffect(() => {
-    loadProducts();
-  }, []);
-
+  useEffect(() => { loadProducts(); }, []);
   useEffect(() => {
     const t = setTimeout(() => loadProducts(search), 300);
     return () => clearTimeout(t);
@@ -80,17 +87,12 @@ export default function NuevaVentaPage() {
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
-      if (
-        dropdownRef.current &&
-        !dropdownRef.current.contains(e.target as Node)
-      ) {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
         setOpenProducts(false);
       }
     }
-
     document.addEventListener("mousedown", handleClickOutside);
-    return () =>
-      document.removeEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
   /* ================= CART ================= */
@@ -104,9 +106,7 @@ export default function NuevaVentaPage() {
           return prev;
         }
         return prev.map((i) =>
-          i.product.id === product.id
-            ? { ...i, qty: i.qty + 1 }
-            : i
+          i.product.id === product.id ? { ...i, qty: i.qty + 1 } : i
         );
       }
       return [...prev, { product, qty: 1 }];
@@ -119,36 +119,31 @@ export default function NuevaVentaPage() {
     setCart((prev) =>
       prev.map((i) =>
         i.product.id === productId
-          ? {
-              ...i,
-              qty:
-                qty > i.product.stock
-                  ? i.product.stock
-                  : Math.max(1, qty),
-            }
+          ? { ...i, qty: qty > i.product.stock ? i.product.stock : Math.max(1, qty) }
           : i
       )
     );
   }
 
   function removeItem(productId: string) {
-    setCart((prev) =>
-      prev.filter((i) => i.product.id !== productId)
-    );
+    setCart((prev) => prev.filter((i) => i.product.id !== productId));
   }
 
-  /* ================= TOTAL (solo UI) ================= */
-
-  const total = cart.reduce(
-    (sum, i) => sum + i.qty * i.product.price,
-    0
-  );
+  const total = cart.reduce((sum, i) => sum + i.qty * i.product.price, 0);
 
   /* ================= SAVE SALE ================= */
 
   async function saveSale() {
-    if (!customerName || cart.length === 0) {
-      alert("Agrega cliente y productos");
+    if (!customerName.trim()) {
+      alert("El nombre del cliente es obligatorio");
+      return;
+    }
+    if (!trackingNumber.trim()) {
+      alert("El número de guía es obligatorio");
+      return;
+    }
+    if (cart.length === 0) {
+      alert("Agrega al menos un producto");
       return;
     }
 
@@ -156,21 +151,22 @@ export default function NuevaVentaPage() {
 
     const items = cart.map((i) => ({
       product_id: i.product.id,
-      product_name: i.product.name, 
+      product_name: i.product.name,
       qty: i.qty,
       unit_price: i.product.price,
       unit_cost: i.product.cost,
     }));
 
-    const { error } = await supabase.rpc(
-      "create_sale_multi",
-      {
-        p_customer_name: customerName,
-        p_customer_phone: customerPhone || null,
-        p_items: items,
-        p_dtf_cost: dtfCost,
-      }
-    );
+    const { error } = await supabase.rpc("create_sale_multi", {
+      p_customer_name:   customerName,
+      p_customer_phone:  customerPhone || null,
+      p_tracking_number: trackingNumber,
+      p_payment_type:    paymentType,
+      p_concept:         concept || null,
+      p_items:           items,
+      p_dtf_cost:        dtfCost,
+      p_shipping_cost:   shippingCost,
+    });
 
     setLoading(false);
 
@@ -185,139 +181,168 @@ export default function NuevaVentaPage() {
   /* ================= UI ================= */
 
   return (
-    <div className="max-w-xl mx-auto space-y-8 pb-24">
+    <div className="max-w-xl mx-auto space-y-6 pb-24">
       <h1 className="text-2xl font-semibold">Nueva venta</h1>
 
       <div className="card p-6 space-y-6">
+
         {/* CLIENTE */}
-        <div className="space-y-2">
-          <label className="text-sm font-medium">Cliente</label>
+        <section className="space-y-3">
+          <h2 className="text-sm font-semibold text-muted uppercase tracking-wider">Cliente</h2>
 
           <div className="flex gap-2 items-center">
-            <User size={16} />
+            <User size={16} className="shrink-0 text-muted" />
             <input
-              className="input input-bordered w-full"
+              className="input w-full"
               value={customerName}
               onChange={(e) => setCustomerName(e.target.value)}
-              placeholder="Nombre del cliente"
+              placeholder="Nombre del cliente *"
             />
           </div>
 
           <div className="flex gap-2 items-center">
-            <Phone size={16} />
+            <Phone size={16} className="shrink-0 text-muted" />
             <input
-              className="input input-bordered w-full"
+              className="input w-full"
               value={customerPhone}
               onChange={(e) => setCustomerPhone(e.target.value)}
               placeholder="Teléfono (opcional)"
             />
           </div>
-        </div>
+        </section>
 
-        {/* PRODUCTOS */}
-        <div className="space-y-3" ref={dropdownRef}>
-          <label className="text-sm font-medium">Productos</label>
+        {/* ENVÍO */}
+        <section className="space-y-3">
+          <h2 className="text-sm font-semibold text-muted uppercase tracking-wider">Envío</h2>
 
           <div className="flex gap-2 items-center">
-            <Package size={16} />
+            <Truck size={16} className="shrink-0 text-muted" />
             <input
-              className="input input-bordered w-full"
-              placeholder="Buscar producto"
+              className="input w-full"
+              value={trackingNumber}
+              onChange={(e) => setTrackingNumber(e.target.value)}
+              placeholder="Número de guía *"
+            />
+          </div>
+
+          <div className="flex gap-2 items-center">
+            <CreditCard size={16} className="shrink-0 text-muted" />
+            <select
+              className="input w-full"
+              value={paymentType}
+              onChange={(e) => setPaymentType(e.target.value as "pagado" | "contra_entrega")}
+            >
+              <option value="pagado">Pagado</option>
+              <option value="contra_entrega">Contra entrega</option>
+            </select>
+          </div>
+
+          <div className="flex gap-2 items-center">
+            <FileText size={16} className="shrink-0 text-muted" />
+            <input
+              className="input w-full"
+              value={concept}
+              onChange={(e) => setConcept(e.target.value)}
+              placeholder="Concepto / nota del pedido (opcional)"
+            />
+          </div>
+        </section>
+
+        {/* PRODUCTOS */}
+        <section className="space-y-3" ref={dropdownRef}>
+          <h2 className="text-sm font-semibold text-muted uppercase tracking-wider">Productos</h2>
+
+          <div className="flex gap-2 items-center">
+            <Package size={16} className="shrink-0 text-muted" />
+            <input
+              className="input w-full"
+              placeholder="Buscar producto por nombre o SKU"
               value={search}
-              onChange={(e) => {
-                setSearch(e.target.value);
-                setOpenProducts(true);
-              }}
+              onChange={(e) => { setSearch(e.target.value); setOpenProducts(true); }}
               onFocus={() => setOpenProducts(true)}
             />
           </div>
 
-          {openProducts && (
-            <div className="border rounded-xl bg-base-100 shadow max-h-56 overflow-auto">
+          {openProducts && products.length > 0 && (
+            <div className="border border-[rgb(var(--border))] rounded-xl bg-[rgb(var(--card))] shadow-lg max-h-56 overflow-auto">
               {products.map((p) => (
                 <button
                   key={p.id}
                   type="button"
                   disabled={p.stock <= 0}
                   onClick={() => addToCart(p)}
-                  className="w-full text-left px-4 py-3 border-b hover:bg-base-200"
+                  className="w-full text-left px-4 py-3 border-b border-[rgb(var(--border))] hover:bg-[rgb(var(--card-soft))] disabled:opacity-40"
                 >
-                  <div className="font-medium">
-                    {p.name}
-                    {p.sku ? ` · ${p.sku}` : ""}
-                  </div>
-                  <div className="text-xs opacity-60">
-                    Stock: {p.stock} · Precio: Q{p.price}
+                  <div className="font-medium">{p.name}{p.sku ? ` · ${p.sku}` : ""}</div>
+                  <div className="text-xs text-muted">
+                    Stock: {p.stock} · Q{p.price}
                   </div>
                 </button>
               ))}
             </div>
           )}
-        </div>
 
-        {/* CARRITO */}
-        {cart.length > 0 && (
-          <div className="space-y-2">
-            {cart.map((i) => (
-              <div
-                key={i.product.id}
-                className="flex items-center gap-2 border rounded-lg p-2"
-              >
-                <div className="flex-1">
-                  <div className="font-medium">
-                    {i.product.name}
+          {cart.length > 0 && (
+            <div className="space-y-2 pt-1">
+              {cart.map((i) => (
+                <div key={i.product.id} className="flex items-center gap-2 border border-[rgb(var(--border))] rounded-xl p-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="font-medium truncate">{i.product.name}</div>
+                    <div className="text-xs text-muted">Q{i.product.price} c/u</div>
                   </div>
-                  <div className="text-xs opacity-60">
-                    Q{i.product.price}
-                  </div>
+                  <input
+                    type="number"
+                    min={1}
+                    className="input w-20 text-center"
+                    value={i.qty}
+                    onChange={(e) => updateQty(i.product.id, Number(e.target.value))}
+                  />
+                  <span className="text-sm font-medium w-20 text-right">
+                    Q{(i.qty * i.product.price).toFixed(2)}
+                  </span>
+                  <button onClick={() => removeItem(i.product.id)} className="text-red-500 hover:text-red-700 p-1">
+                    <Trash2 size={15} />
+                  </button>
                 </div>
+              ))}
+            </div>
+          )}
+        </section>
 
-                <input
-                  type="number"
-                  min={1}
-                  className="input input-bordered w-20"
-                  value={i.qty}
-                  onChange={(e) =>
-                    updateQty(
-                      i.product.id,
-                      Number(e.target.value)
-                    )
-                  }
-                />
+        {/* COSTOS */}
+        <section className="space-y-3">
+          <h2 className="text-sm font-semibold text-muted uppercase tracking-wider">Costos</h2>
 
-                <button
-                  onClick={() => removeItem(i.product.id)}
-                  className="btn btn-ghost btn-sm text-error"
-                >
-                  <Trash2 size={16} />
-                </button>
-              </div>
-            ))}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs text-muted">Costo envío (Q)</label>
+              <input
+                type="number"
+                min={0}
+                step="0.01"
+                className="input w-full"
+                value={shippingCost}
+                onChange={(e) => setShippingCost(Number(e.target.value))}
+              />
+            </div>
+            <div>
+              <label className="text-xs text-muted">Costo DTF (Q)</label>
+              <input
+                type="number"
+                min={0}
+                step="0.01"
+                className="input w-full"
+                value={dtfCost}
+                onChange={(e) => setDtfCost(Number(e.target.value))}
+              />
+            </div>
           </div>
-        )}
-
-        {/* DTF */}
-        <div className="space-y-2">
-          <label className="text-sm font-medium">
-            Costo DTF (no afecta el total)
-          </label>
-          <div className="flex gap-2 items-center">
-            <DollarSign size={16} />
-            <input
-              type="number"
-              min={0}
-              step="0.01"
-              className="input input-bordered w-full"
-              value={dtfCost}
-              onChange={(e) => setDtfCost(Number(e.target.value))}
-            />
-          </div>
-        </div>
+        </section>
 
         {/* TOTAL */}
-        <div className="flex justify-between text-lg font-semibold">
-          <span>Total</span>
-          <span>Q{total.toFixed(2)}</span>
+        <div className="flex justify-between items-center py-3 border-t border-[rgb(var(--border))]">
+          <span className="font-semibold">Total</span>
+          <span className="text-2xl font-bold text-green-400">Q{total.toFixed(2)}</span>
         </div>
 
         {/* SAVE */}
@@ -327,7 +352,7 @@ export default function NuevaVentaPage() {
           className="btn btn-primary w-full flex justify-center gap-2"
         >
           <Save size={16} />
-          {loading ? "Guardando..." : "Guardar venta"}
+          {loading ? "Guardando…" : "Guardar venta"}
         </button>
       </div>
     </div>
