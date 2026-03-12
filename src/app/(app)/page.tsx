@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   TrendingUp, AlertTriangle, Wallet, ShoppingBag,
-  PackageX, Download, BarChart3, CalendarRange,
+  PackageX, Download, BarChart3, CalendarRange, ChevronDown,
 } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 import dynamic from "next/dynamic";
@@ -56,6 +56,13 @@ export default function DashboardPage() {
   const [gastosFijos, setGastosFijos] = useState(0);
   const [loading,   setLoading]   = useState(true);
   const [showCharts, setShowCharts] = useState(false);
+
+  // secciones colapsables
+  const [openRange,    setOpenRange]    = useState(true);
+  const [openMetrics,  setOpenMetrics]  = useState(true);
+  const [openDesglose, setOpenDesglose] = useState(false);
+  const [openTable,    setOpenTable]    = useState(true);
+  const [openStock,    setOpenStock]    = useState(true);
 
   /* ── load ── */
   async function loadData() {
@@ -254,44 +261,44 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* SELECTOR DE RANGO */}
-      <div className="card p-4 space-y-3">
-        {/* Atajos rápidos */}
-        <div className="flex flex-wrap gap-2">
-          {[
-            { label:"Hoy",            fn: quickToday },
-            { label:"Últimos 7 días", fn: quick7     },
-            { label:"Este mes",       fn: quickMonth },
-            { label:"Mes anterior",   fn: quickPrev  },
-          ].map(({ label, fn }) => (
-            <button key={label} onClick={fn}
-              className={`text-xs px-3 py-1.5 rounded-lg border transition-colors font-medium ${
-                rangeLabel === label
-                  ? "bg-green-500 text-white border-green-500"
-                  : "border-[rgb(var(--border))] text-muted hover:text-[rgb(var(--text))] hover:bg-[rgb(var(--card-soft))]"
-              }`}>
-              {label}
-            </button>
-          ))}
+      {/* SELECTOR DE RANGO — colapsable */}
+      <Collapsible
+        label={<span className="flex items-center gap-2"><CalendarRange size={14}/> Rango — {rangeLabel}</span>}
+        open={openRange} onToggle={() => setOpenRange(v=>!v)}
+      >
+        <div className="space-y-3 pt-3">
+          <div className="flex flex-wrap gap-2">
+            {([
+              { label:"Hoy",            fn: quickToday },
+              { label:"Últimos 7 días", fn: quick7     },
+              { label:"Este mes",       fn: quickMonth },
+              { label:"Mes anterior",   fn: quickPrev  },
+            ] as const).map(({ label, fn }) => (
+              <button key={label} onClick={fn}
+                className={`text-xs px-3 py-1.5 rounded-lg border transition-colors font-medium ${
+                  rangeLabel === label
+                    ? "bg-green-500 text-white border-green-500"
+                    : "border-[rgb(var(--border))] text-muted hover:text-[rgb(var(--text))] hover:bg-[rgb(var(--card-soft))]"
+                }`}>
+                {label}
+              </button>
+            ))}
+          </div>
+          <div className="flex flex-wrap gap-3 items-end">
+            <div>
+              <label className="text-xs text-muted block mb-1">Desde</label>
+              <input type="date" className="input" value={dateFrom} max={dateTo}
+                onChange={e => { setDateFrom(e.target.value); setRangeLabel("Personalizado"); }} />
+            </div>
+            <div>
+              <label className="text-xs text-muted block mb-1">Hasta</label>
+              <input type="date" className="input" value={dateTo} min={dateFrom} max={todayStr}
+                onChange={e => { setDateTo(e.target.value); setRangeLabel("Personalizado"); }} />
+            </div>
+            <p className="text-xs text-muted self-center">{sales.length} pedido{sales.length!==1?"s":""} en el rango</p>
+          </div>
         </div>
-
-        {/* Rango personalizado */}
-        <div className="flex flex-wrap gap-3 items-end">
-          <div>
-            <label className="text-xs text-muted block mb-1">Desde</label>
-            <input type="date" className="input" value={dateFrom} max={dateTo}
-              onChange={e => { setDateFrom(e.target.value); setRangeLabel("Personalizado"); }} />
-          </div>
-          <div>
-            <label className="text-xs text-muted block mb-1">Hasta</label>
-            <input type="date" className="input" value={dateTo} min={dateFrom} max={todayStr}
-              onChange={e => { setDateTo(e.target.value); setRangeLabel("Personalizado"); }} />
-          </div>
-          <div className="text-xs text-muted self-center pb-0.5">
-            {sales.length} pedido{sales.length!==1?"s":""} en el rango
-          </div>
-        </div>
-      </div>
+      </Collapsible>
 
       {/* ALERTA BAJO INVENTARIO */}
       {lowStock.length > 0 && (
@@ -304,10 +311,9 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* MÉTRICAS */}
-      <section className="space-y-2">
-        <h2 className="text-xs font-semibold text-muted uppercase tracking-wider">Resumen del período</h2>
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      {/* MÉTRICAS — colapsable */}
+      <Collapsible label="Resumen del período" open={openMetrics} onToggle={() => setOpenMetrics(v=>!v)}>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 pt-3">
           <Metric label="Ventas del período"   value={`Q${ventasMes.toFixed(2)}`}
             icon={<TrendingUp size={15}/>} accent sub={`${entregadas.length} entregada${entregadas.length!==1?"s":""}`}/>
           <Metric label="Ganancia bruta"       value={`Q${gananciaBruta.toFixed(2)}`}
@@ -317,43 +323,36 @@ export default function DashboardPage() {
           <Metric label="Ganancia neta"        value={`Q${gananciaNeta.toFixed(2)}`}
             icon={<Wallet size={15}/>} positive={gananciaNeta>=0} sub="Bruta − gastos − pérdidas"/>
         </div>
-      </section>
-
-      {/* DESGLOSE */}
-      <section className="card p-5 space-y-3">
-        <h2 className="text-sm font-semibold">Desglose financiero</h2>
-        <div className="space-y-2 text-sm">
-          <DR label="Ventas brutas"             value={ventasMes}                   sign="+" color="green"/>
-          <DR label="Costo productos + envíos"  value={ventasMes - gananciaBruta}   sign="-" color="red"/>
-          <div className="border-t border-[rgb(var(--border))] pt-2">
-            <DR label="Ganancia bruta"          value={gananciaBruta}               sign=""  color={gananciaBruta>=0?"green":"red"} bold/>
+        {noRecibidos.length > 0 && (
+          <div className="grid grid-cols-2 gap-3 pt-3">
+            <Metric label="No recibidos"   value={`${noRecibidos.length}`} icon={<PackageX size={15}/>} danger sub="Contra entrega"/>
+            <Metric label="Pérdida envíos" value={`Q${perdidaEnvios.toFixed(2)}`} icon={<AlertTriangle size={15}/>} danger sub="Costo de envío perdido"/>
           </div>
-          <DR label="Gastos fijos"              value={gastosFijos}                  sign="-" color="red"/>
+        )}
+      </Collapsible>
+
+      {/* DESGLOSE — colapsable (cerrado por defecto) */}
+      <Collapsible label="Desglose financiero" open={openDesglose} onToggle={() => setOpenDesglose(v=>!v)}>
+        <div className="space-y-2 text-sm pt-3">
+          <DR label="Ventas brutas"             value={ventasMes}                 sign="+" color="green"/>
+          <DR label="Costo productos + envíos"  value={ventasMes - gananciaBruta} sign="-" color="red"/>
+          <div className="border-t border-[rgb(var(--border))] pt-2">
+            <DR label="Ganancia bruta"          value={gananciaBruta}             sign=""  color={gananciaBruta>=0?"green":"red"} bold/>
+          </div>
+          <DR label="Gastos fijos"              value={gastosFijos}               sign="-" color="red"/>
           {perdidaEnvios>0 &&
             <DR label={`Pérdida envíos no recibidos (${noRecibidos.length})`} value={perdidaEnvios} sign="-" color="red"/>
           }
           <div className="border-t border-[rgb(var(--border))] pt-2">
-            <DR label="Ganancia neta"           value={gananciaNeta}                sign=""  color={gananciaNeta>=0?"green":"red"} bold/>
+            <DR label="Ganancia neta"           value={gananciaNeta}              sign=""  color={gananciaNeta>=0?"green":"red"} bold/>
           </div>
         </div>
-      </section>
+      </Collapsible>
 
-      {/* NO RECIBIDOS */}
-      {noRecibidos.length > 0 && (
-        <section className="space-y-2">
-          <h2 className="text-xs font-semibold text-muted uppercase tracking-wider">No recibidos en el período</h2>
-          <div className="grid grid-cols-2 gap-3">
-            <Metric label="No recibidos"   value={`${noRecibidos.length}`}           icon={<PackageX size={15}/>} danger sub="Contra entrega"/>
-            <Metric label="Pérdida envíos" value={`Q${perdidaEnvios.toFixed(2)}`}    icon={<AlertTriangle size={15}/>} danger sub="Producto vuelve al inventario"/>
-          </div>
-        </section>
-      )}
-
-      {/* TABLA POR DÍA */}
+      {/* TABLA POR DÍA — colapsable */}
       {dailyData.length > 0 && (
-        <section className="space-y-2">
-          <h2 className="text-xs font-semibold text-muted uppercase tracking-wider">Resumen por día</h2>
-          <div className="card p-0 overflow-x-auto">
+        <Collapsible label={`Resumen por día (${dailyData.length})`} open={openTable} onToggle={() => setOpenTable(v=>!v)}>
+          <div className="card p-0 overflow-x-auto mt-3">
             <table className="min-w-full text-sm">
               <thead>
                 <tr className="border-b border-[rgb(var(--border))] text-muted text-xs uppercase tracking-wider bg-[rgb(var(--card-soft))]">
@@ -400,22 +399,20 @@ export default function DashboardPage() {
               </tfoot>
             </table>
           </div>
-        </section>
+        </Collapsible>
       )}
 
       {/* GRÁFICAS */}
       {showCharts && (
-        <section className="space-y-2">
-          <h2 className="text-xs font-semibold text-muted uppercase tracking-wider">Gráficas</h2>
+        <div className="card p-4">
           <VentasCharts porDia={porDia} porMes={porMes}/>
-        </section>
+        </div>
       )}
 
-      {/* BAJO STOCK */}
+      {/* BAJO STOCK — colapsable */}
       {lowStock.length > 0 && (
-        <section className="space-y-2">
-          <h2 className="text-xs font-semibold text-muted uppercase tracking-wider">Inventario bajo (≤ 5 unidades)</h2>
-          <div className="card p-0 overflow-x-auto">
+        <Collapsible label={`Inventario bajo — ${lowStock.length} producto${lowStock.length!==1?"s":""}`} open={openStock} onToggle={() => setOpenStock(v=>!v)}>
+          <div className="card p-0 overflow-x-auto mt-3">
             <table className="min-w-full text-sm">
               <thead>
                 <tr className="border-b border-[rgb(var(--border))] text-muted text-xs uppercase tracking-wider">
@@ -435,10 +432,25 @@ export default function DashboardPage() {
               </tbody>
             </table>
           </div>
-        </section>
+        </Collapsible>
       )}
 
       {loading && <p className="text-sm text-muted py-4">Cargando datos…</p>}
+    </div>
+  );
+}
+
+function Collapsible({ label, open, onToggle, children }: {
+  label: React.ReactNode; open: boolean; onToggle: () => void; children: React.ReactNode;
+}) {
+  return (
+    <div className="card overflow-hidden">
+      <button onClick={onToggle}
+        className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium hover:bg-[rgb(var(--card-soft))] transition-colors">
+        <span>{label}</span>
+        <ChevronDown size={14} className={`transition-transform duration-200 text-muted ${open?"":"rotate-180"}`}/>
+      </button>
+      {open && <div className="px-4 pb-4 border-t border-[rgb(var(--border))]">{children}</div>}
     </div>
   );
 }

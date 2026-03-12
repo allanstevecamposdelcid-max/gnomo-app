@@ -169,7 +169,8 @@ export default function VentasPage() {
   ===================== */
 
   async function deleteSale(sale: Sale) {
-    const needsRestoreStock = sale.status === "pendiente" || sale.status === "enviado";
+    // no_recibido: el stock ya fue devuelto por el trigger SQL, no restaurar de nuevo
+    const needsRestoreStock = sale.status !== "no_recibido";
     const msg = needsRestoreStock
       ? "¿Eliminar esta venta?\n\n• El stock de los productos volverá al inventario.\n\nEsta acción no se puede deshacer."
       : "¿Eliminar esta venta? Esta acción no se puede deshacer.";

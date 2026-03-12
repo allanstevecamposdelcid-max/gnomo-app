@@ -6,11 +6,12 @@ import AppSidebar from "./AppSidebar";
 import BottomNav from "./BottomNav";
 
 export default function Shell({ children }: { children: React.ReactNode }) {
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarOpen,      setSidebarOpen]      = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   return (
     <>
-      <AppHeader onMenuClick={() => setSidebarOpen((v) => !v)} />
+      <AppHeader />
 
       <div className="flex flex-1 min-h-0">
         {/* Overlay móvil */}
@@ -24,6 +25,8 @@ export default function Shell({ children }: { children: React.ReactNode }) {
         <AppSidebar
           open={sidebarOpen}
           onClose={() => setSidebarOpen(false)}
+          collapsed={sidebarCollapsed}
+          onToggle={() => setSidebarCollapsed(v => !v)}
         />
 
         <main className="flex-1 overflow-y-auto p-4 pb-24 md:pb-6 lg:p-8">
@@ -31,7 +34,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
         </main>
       </div>
 
-      <BottomNav onMenuClick={() => setSidebarOpen((v) => !v)} />
+      <BottomNav onMenuClick={() => setSidebarOpen(v => !v)} />
     </>
   );
 }
