@@ -23,11 +23,9 @@ type LossDetail = {
   amount: number;
   description: string;
   loss_date: string;
-  sales: {
-    order_number: string;
-    customer_name: string;
-    total: number;
-  } | null;
+  // Supabase returns the related row as an object (not array)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  sales: any;
 };
 
 const MONTHS = [
@@ -76,7 +74,7 @@ export default function PerdidasPage() {
       setSummary(null);
     }
 
-    setDetails((detailsRes.data ?? []) as LossDetail[]);
+    setDetails((detailsRes.data ?? []) as unknown as LossDetail[]);
     setLoading(false);
   }
 
