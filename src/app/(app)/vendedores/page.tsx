@@ -17,6 +17,7 @@ type VendorProduct = {
   name: string;
   stock: number;
   price: number;
+  base: { name: string; stock: number } | null; // diseño: usa el stock de la prenda lisa
 };
 
 type Form = { name: string; phone: string; notes: string };
@@ -47,11 +48,11 @@ export default function VendedoresPage() {
   async function loadVendorProducts(vendorId: string) {
     const { data } = await supabase
       .from("products")
-      .select("id, name, stock, price")
+      .select("id, name, stock, price, base:base_product_id(name, stock)")
       .eq("supplier_id", vendorId)
       .eq("active", true)
       .order("name");
-    setVendorProducts((data as VendorProduct[]) ?? []);
+    setVendorProducts((data as unknown as VendorProduct[]) ?? []);
   }
 
   const filtered = vendors.filter(v =>
@@ -197,17 +198,20 @@ export default function VendedoresPage() {
               ? <p className="text-sm text-muted text-center py-6">Sin productos asignados. Ve a Inventario para asignarlos.</p>
               : (
                 <div className="space-y-2 max-h-72 overflow-y-auto">
-                  {vendorProducts.map(p => (
+                  {vendorProducts.map(p => {
+                    const stock = p.base ? p.base.stock : p.stock;
+                    return (
                     <div key={p.id} className="flex items-center justify-between px-3 py-2 rounded-lg bg-[rgb(var(--card-soft))]">
                       <span className="text-sm font-medium">{p.name}</span>
                       <div className="flex items-center gap-3 text-xs text-muted">
-                        <span className={`badge ${p.stock <= 0 ? "badge-red" : p.stock <= 5 ? "badge-orange" : "badge-green"}`}>
-                          {p.stock} uds
+                        <span className={`badge ${stock <= 0 ? "badge-red" : stock <= 5 ? "badge-orange" : "badge-green"}`}>
+                          {stock} uds
                         </span>
                         <span>Q{p.price.toFixed(2)}</span>
                       </div>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )
             }

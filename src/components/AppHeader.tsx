@@ -1,12 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { Moon, Sun } from "lucide-react";
+import { Moon, Sun, Lock, LockOpen } from "lucide-react";
+import { useProfitLock } from "./ProfitLock";
 import { useTheme } from "next-themes";
 import { useEffect, useState } from "react";
 
 export default function AppHeader() {
   const { resolvedTheme, setTheme } = useTheme();
+  const { unlocked, requestUnlock, lock } = useProfitLock();
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => setMounted(true), []);
@@ -20,14 +22,25 @@ export default function AppHeader() {
         El Gnomo
       </Link>
 
-      <button
-        type="button"
-        onClick={() => setTheme(isDark ? "light" : "dark")}
-        className="btn btn-ghost p-2"
-        aria-label="Cambiar tema"
-      >
-        {isDark ? <Sun size={18} /> : <Moon size={18} />}
-      </button>
+      <div className="flex items-center gap-1">
+        <button
+          type="button"
+          onClick={unlocked ? lock : requestUnlock}
+          className="btn btn-ghost p-2"
+          aria-label={unlocked ? "Ocultar ganancias" : "Ver ganancias"}
+          title={unlocked ? "Ocultar ganancias" : "Ver ganancias"}
+        >
+          {unlocked ? <LockOpen size={18} /> : <Lock size={18} />}
+        </button>
+        <button
+          type="button"
+          onClick={() => setTheme(isDark ? "light" : "dark")}
+          className="btn btn-ghost p-2"
+          aria-label="Cambiar tema"
+        >
+          {isDark ? <Sun size={18} /> : <Moon size={18} />}
+        </button>
+      </div>
     </header>
   );
 }

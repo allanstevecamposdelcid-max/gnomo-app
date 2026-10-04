@@ -4,13 +4,17 @@ import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import {
   User, Phone, Package, Save, Truck,
-  FileText, CreditCard, Trash2,
+  FileText, CreditCard, Trash2, Gift,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { FREE_SHIPPING_MIN, SHIPPING_COST } from "@/lib/constants";
 
 type Product = {
   id: string; name: string; sku: string | null;
   stock: number; price: number; cost: number;
+  // Diseño estampado: usa el stock de la prenda lisa base
+  base_product_id: string | null;
+  base: { name: string; stock: number } | null;
 };
 
 type CartItem = {
@@ -18,6 +22,18 @@ type CartItem = {
   qty: number;
   unit_price: number; // editable
 };
+
+/* Stock real del producto (el de la prenda lisa si es un diseño) */
+const stockOf  = (p: Product) => (p.base ? p.base.stock : p.stock);
+/* Diseños de la misma prenda lisa comparten stock */
+const stockKey = (p: Product) => p.base_product_id ?? p.id;
+/* Máximo que se puede agregar de p, descontando lo que otros productos del carrito ya usan del mismo stock */
+function maxQty(cart: CartItem[], p: Product) {
+  const usedByOthers = cart
+    .filter((i) => i.product.id !== p.id && stockKey(i.product) === stockKey(p))
+    .reduce((sum, i) => sum + i.qty, 0);
+  return stockOf(p) - usedByOthers;
+}
 
 export default function NuevaVentaPage() {
   const router = useRouter();
@@ -34,17 +50,18 @@ export default function NuevaVentaPage() {
   const [paymentType, setPaymentType] = useState<"pagado" | "contra_entrega">("pagado");
   const [concept, setConcept] = useState("");
   const [shippingCost, setShippingCost] = useState<number | "">("");
+  const [applyFreeShipping, setApplyFreeShipping] = useState(true);
   const [loading, setLoading] = useState(false);
 
   async function loadProducts(q = "") {
     let query = supabase
       .from("products")
-      .select("id,name,sku,stock,price,cost")
+      .select("id,name,sku,stock,price,cost,base_product_id,base:base_product_id(name,stock)")
       .eq("active", true)
       .order("name");
     if (q.trim()) query = query.or(`name.ilike.%${q}%,sku.ilike.%${q}%`);
     const { data } = await query;
-    setProducts((data as Product[]) || []);
+    setProducts((data as unknown as Product[]) || []);
   }
 
   useEffect(() => { loadProducts(); }, []);
@@ -65,8 +82,8 @@ export default function NuevaVentaPage() {
   function addToCart(product: Product) {
     setCart((prev) => {
       const found = prev.find((i) => i.product.id === product.id);
+      if ((found?.qty ?? 0) + 1 > maxQty(prev, product)) { alert("Stock insuficiente"); return prev; }
       if (found) {
-        if (found.qty + 1 > product.stock) { alert("Stock insuficiente"); return prev; }
         return prev.map((i) =>
           i.product.id === product.id ? { ...i, qty: i.qty + 1 } : i
         );
@@ -81,7 +98,7 @@ export default function NuevaVentaPage() {
     setCart((prev) =>
       prev.map((i) =>
         i.product.id === productId
-          ? { ...i, qty: qty > i.product.stock ? i.product.stock : Math.max(1, qty) }
+          ? { ...i, qty: Math.max(1, Math.min(qty, maxQty(prev, i.product))) }
           : i
       )
     );
@@ -102,6 +119,9 @@ export default function NuevaVentaPage() {
   }
 
   const total = cart.reduce((sum, i) => sum + i.qty * i.unit_price, 0);
+  // Oferta: compra mayor a Q300 → envío gratis, el negocio absorbe Q32
+  const freeShippingEligible = total > FREE_SHIPPING_MIN;
+  const shippingDiscount = freeShippingEligible && applyFreeShipping ? SHIPPING_COST : 0;
 
   async function saveSale() {
     if (!customerName.trim()) { alert("El nombre del cliente es obligatorio"); return; }
@@ -127,6 +147,7 @@ export default function NuevaVentaPage() {
       p_items:           items,
       p_dtf_cost:        0,
       p_shipping_cost:   Number(shippingCost) || 0,
+      p_shipping_discount: shippingDiscount,
     });
 
     setLoading(false);
@@ -198,11 +219,13 @@ export default function NuevaVentaPage() {
           {openProducts && products.length > 0 && (
             <div className="border border-[rgb(var(--border))] rounded-xl bg-[rgb(var(--card))] shadow-lg max-h-56 overflow-auto">
               {products.map((p) => (
-                <button key={p.id} type="button" disabled={p.stock <= 0}
+                <button key={p.id} type="button" disabled={stockOf(p) <= 0}
                   onClick={() => addToCart(p)}
                   className="w-full text-left px-4 py-3 border-b border-[rgb(var(--border))] hover:bg-[rgb(var(--card-soft))] disabled:opacity-40">
                   <div className="font-medium">{p.name}{p.sku ? ` · ${p.sku}` : ""}</div>
-                  <div className="text-xs text-muted">Stock: {p.stock} · Q{p.price}</div>
+                  <div className="text-xs text-muted">
+                    Stock: {stockOf(p)}{p.base ? ` (de ${p.base.name})` : ""} · Q{p.price}
+                  </div>
                 </button>
               ))}
             </div>
@@ -269,12 +292,32 @@ export default function NuevaVentaPage() {
               value={shippingCost}
               onChange={(e) => setShippingCost(e.target.value === "" ? "" : Number(e.target.value))} />
           </div>
+          {freeShippingEligible ? (
+            <label className="flex items-start gap-2 rounded-xl border border-[rgb(var(--border))] bg-[rgb(var(--card-soft))] px-3 py-2.5 text-sm cursor-pointer">
+              <input type="checkbox" className="mt-0.5" checked={applyFreeShipping}
+                onChange={(e) => setApplyFreeShipping(e.target.checked)} />
+              <span>
+                <span className="font-medium flex items-center gap-1.5"><Gift size={14} /> Envío gratis (compra mayor a Q{FREE_SHIPPING_MIN})</span>
+                <span className="text-xs text-muted">Se descuentan Q{SHIPPING_COST} de la ganancia de este pedido.</span>
+              </span>
+            </label>
+          ) : (
+            <p className="text-xs text-muted">Compras mayores a Q{FREE_SHIPPING_MIN} llevan envío gratis (−Q{SHIPPING_COST} de la ganancia).</p>
+          )}
         </section>
 
         {/* TOTAL */}
-        <div className="flex justify-between items-center py-3 border-t border-[rgb(var(--border))]">
-          <span className="font-semibold">Total</span>
-          <span className="text-2xl font-bold text-green-400">Q{total.toFixed(2)}</span>
+        <div className="py-3 border-t border-[rgb(var(--border))] space-y-1">
+          <div className="flex justify-between items-center">
+            <span className="font-semibold">Total</span>
+            <span className="text-2xl font-bold text-green-400">Q{total.toFixed(2)}</span>
+          </div>
+          {shippingDiscount > 0 && (
+            <div className="flex justify-between items-center text-sm text-muted">
+              <span>Envío gratis (lo paga el negocio)</span>
+              <span className="text-red-500">−Q{shippingDiscount.toFixed(2)}</span>
+            </div>
+          )}
         </div>
 
         <button onClick={saveSale} disabled={loading}

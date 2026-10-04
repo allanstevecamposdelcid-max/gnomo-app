@@ -1,11 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Plus, Trash2, Receipt, AlertTriangle, PackageX, Percent, TrendingDown, ChevronLeft, ChevronRight } from "lucide-react";
+import { Plus, Trash2, AlertTriangle, PackageX, Percent, TrendingDown, ChevronLeft, ChevronRight, PinOff } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 
 type FixedCategory = "renta" | "sueldos" | "internet" | "publicidad" | "servicios" | "otros";
-type FixedExpense = { id: string; category: FixedCategory; description: string; amount: number; month: number; year: number };
+type FixedExpense = { id: string; category: FixedCategory; description: string; amount: number; start_date: string; end_date: string | null };
 type LossDetail = { id: string; sale_id: string | null; reason: string; amount: number; description: string; loss_date: string; sales: { order_number: string; customer_name: string; total: number } | null };
 type LossSummary = { total_perdido: number; total_envios: number; pedidos_no_recibidos: number; total_pedidos: number; porcentaje_no_recibidos: number };
 
@@ -14,6 +14,13 @@ const CAT_COLORS: Record<FixedCategory, string> = {
   renta: "badge-blue", sueldos: "badge-green", internet: "badge-blue",
   publicidad: "badge-orange", servicios: "badge-yellow", otros: "badge-red",
 };
+const pad2 = (n: number) => String(n).padStart(2, "0");
+function monthBounds(y: number, m: number) {
+  return { first: `${y}-${pad2(m)}-01`, last: `${y}-${pad2(m)}-${pad2(new Date(y, m, 0).getDate())}` };
+}
+function fmtMonth(d: string) {
+  return new Date(d + "T12:00:00").toLocaleDateString("es-GT", { month: "short", year: "numeric" });
+}
 const MONTHS = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
 
 type Tab = "gastos" | "perdidas";
@@ -74,9 +81,12 @@ function GastosFijos({ month, year }: { month: number; year: number }) {
 
   async function load() {
     setLoading(true);
+    const { first, last } = monthBounds(year, month);
     const { data } = await supabase.from("fixed_expenses")
-      .select("id, category, description, amount, month, year")
-      .eq("month", month).eq("year", year).order("category");
+      .select("id, category, description, amount, start_date, end_date")
+      .lte("start_date", last)
+      .or(`end_date.is.null,end_date.gte.${first}`)
+      .order("category");
     setExpenses((data ?? []) as FixedExpense[]);
     setLoading(false);
   }
@@ -91,12 +101,21 @@ function GastosFijos({ month, year }: { month: number; year: number }) {
 
   async function add() {
     if (!description.trim() || !amount || Number(amount) <= 0) { alert("Completa descripción y monto"); return; }
-    const { error } = await supabase.from("fixed_expenses").insert({ category, description, amount: Number(amount), month, year });
+    // Se repite cada mes a partir del mes seleccionado
+    const { first } = monthBounds(year, month);
+    const { error } = await supabase.from("fixed_expenses").insert({ category, description, amount: Number(amount), start_date: first });
     if (error) { alert(error.message); return; }
     setDescription(""); setAmount(""); load();
   }
+  async function stop(e: FixedExpense) {
+    if (!confirm(`¿Dejar de repetir "${e.description}"?\n\nSe cobra en ${MONTHS[month-1]} ${year} y ya no se repite desde el mes siguiente.`)) return;
+    const { last } = monthBounds(year, month);
+    const { error } = await supabase.from("fixed_expenses").update({ end_date: last }).eq("id", e.id);
+    if (error) { alert(error.message); return; }
+    load();
+  }
   async function del(id: string) {
-    if (!confirm("¿Eliminar este gasto?")) return;
+    if (!confirm("¿Eliminar este gasto fijo de TODOS los meses?")) return;
     await supabase.from("fixed_expenses").delete().eq("id", id);
     load();
   }
@@ -118,6 +137,7 @@ function GastosFijos({ month, year }: { month: number; year: number }) {
       {/* Formulario */}
       <div className="card p-4 space-y-3">
         <h2 className="text-sm font-medium flex items-center gap-2"><Plus size={14}/>Agregar gasto fijo</h2>
+        <p className="text-xs text-muted -mt-1">Se repite automáticamente cada mes desde {MONTHS[month-1]} {year}, sin volver a registrarlo.</p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <label className="text-xs text-muted block mb-1">Categoría</label>
@@ -157,10 +177,18 @@ function GastosFijos({ month, year }: { month: number; year: number }) {
               {expenses.map(e => (
                 <tr key={e.id} className="border-t border-[rgb(var(--border))]">
                   <td className="p-3"><span className={`badge ${CAT_COLORS[e.category]} text-xs`}>{CAT_LABELS[e.category]}</span></td>
-                  <td className="p-3">{e.description}</td>
+                  <td className="p-3">
+                    {e.description} <span className="badge badge-gray text-[10px] ml-1">Fijo</span>
+                    <p className="text-[11px] text-muted">
+                      Desde {fmtMonth(e.start_date)}{e.end_date ? ` hasta ${fmtMonth(e.end_date)}` : ""}
+                    </p>
+                  </td>
                   <td className="p-3 text-right font-medium text-red-500">Q{Number(e.amount).toFixed(2)}</td>
-                  <td className="p-3 text-center">
-                    <button onClick={() => del(e.id)} className="text-red-500 hover:text-red-700 p-1"><Trash2 size={14}/></button>
+                  <td className="p-3 text-center whitespace-nowrap">
+                    {!e.end_date && (
+                      <button onClick={() => stop(e)} title="Dejar de repetir" className="text-muted hover:text-[rgb(var(--text))] p-1"><PinOff size={14}/></button>
+                    )}
+                    <button onClick={() => del(e.id)} title="Eliminar" className="text-red-500 hover:text-red-700 p-1"><Trash2 size={14}/></button>
                   </td>
                 </tr>
               ))}
@@ -190,13 +218,13 @@ function Perdidas({ month, year }: { month: number; year: number }) {
 
   async function load() {
     setLoading(true);
-    const monthStr = String(month).padStart(2,"0");
+    const { first, last } = monthBounds(year, month);
     const [sumRes, detRes] = await Promise.all([
       supabase.rpc("get_loss_summary", { p_month: month, p_year: year }).single(),
       supabase.from("losses")
         .select("id, sale_id, reason, amount, description, loss_date, sales(order_number, customer_name, total)")
-        .gte("loss_date", `${year}-${monthStr}-01`)
-        .lte("loss_date", `${year}-${monthStr}-31`)
+        .gte("loss_date", first)
+        .lte("loss_date", last)
         .order("loss_date", { ascending: false }),
     ]);
     if (!sumRes.error && sumRes.data) setSummary(sumRes.data as LossSummary);
@@ -213,7 +241,7 @@ function Perdidas({ month, year }: { month: number; year: number }) {
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <StatCard label="Total perdido"    value={`Q${Number(summary.total_perdido).toFixed(2)}`} icon={<TrendingDown size={15}/>} danger />
           <StatCard label="Gasto en envíos"  value={`Q${Number(summary.total_envios).toFixed(2)}`}  icon={<PackageX size={15}/>} />
-          <StatCard label="No recibidos"     value={`${summary.pedidos_no_recibidos} / ${summary.total_pedidos}`} icon={<AlertTriangle size={15}/>} danger={Number(summary.pedidos_no_recibidos)>0} />
+          <StatCard label="No recibidos / devol."  value={`${summary.pedidos_no_recibidos} / ${summary.total_pedidos}`} icon={<AlertTriangle size={15}/>} danger={Number(summary.pedidos_no_recibidos)>0} />
           <StatCard label="% No recibidos"   value={`${Number(summary.porcentaje_no_recibidos).toFixed(1)}%`} icon={<Percent size={15}/>} danger={Number(summary.porcentaje_no_recibidos)>10} />
         </div>
       )}
@@ -233,17 +261,22 @@ function Perdidas({ month, year }: { month: number; year: number }) {
                 <th className="p-3 text-left">Fecha</th>
                 <th className="p-3 text-left">Pedido</th>
                 <th className="p-3 text-left">Cliente</th>
-                <th className="p-3 text-left">Descripción</th>
+                <th className="p-3 text-left">Motivo</th>
                 <th className="p-3 text-right">Pérdida</th>
               </tr>
             </thead>
             <tbody>
               {details.map(l => (
                 <tr key={l.id} className="border-t border-[rgb(var(--border))]">
-                  <td className="p-3 text-muted">{new Date(l.loss_date).toLocaleDateString("es-GT")}</td>
+                  <td className="p-3 text-muted">{new Date(l.loss_date + "T12:00:00").toLocaleDateString("es-GT")}</td>
                   <td className="p-3 font-mono text-xs">{l.sales?.order_number ?? "—"}</td>
                   <td className="p-3">{l.sales?.customer_name ?? "—"}</td>
-                  <td className="p-3 text-muted text-xs">{l.description}</td>
+                  <td className="p-3 text-xs">
+                    <span className={`badge ${l.reason === "devolucion" ? "badge-orange" : "badge-red"} text-[10px]`}>
+                      {l.reason === "devolucion" ? "Devolución" : l.reason === "no_recibido" ? "No recibido" : "Otro"}
+                    </span>
+                    <p className="text-muted mt-1">{l.description}</p>
+                  </td>
                   <td className="p-3 text-right font-medium text-red-500">Q{Number(l.amount).toFixed(2)}</td>
                 </tr>
               ))}

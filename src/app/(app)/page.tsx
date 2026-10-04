@@ -4,29 +4,43 @@ import { useEffect, useMemo, useState } from "react";
 import {
   TrendingUp, AlertTriangle, Wallet, ShoppingBag,
   PackageX, Download, BarChart3, CalendarRange, ChevronDown,
-  Plus, Trash2, DollarSign,
+  Plus, Trash2, DollarSign, PinOff, Trophy, Undo2,
 } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 import dynamic from "next/dynamic";
+import { Hidden, HiddenBlock, useProfitLock } from "@/components/ProfitLock";
+import TopProducts from "@/components/TopProducts";
 
 const VentasCharts = dynamic(() => import("@/components/VentasCharts"), { ssr: false });
 
 type SaleItem = { qty: number; unit_cost: number };
 type Sale = {
   order_number: string; customer_name: string;
-  total: number; shipping_cost: number;
-  status: "pendiente" | "enviado" | "entregado" | "no_recibido";
+  total: number; shipping_cost: number; shipping_discount: number;
+  status: "pendiente" | "enviado" | "entregado" | "no_recibido" | "devuelto";
   payment_type: "pagado" | "contra_entrega";
   created_at: string;
   sale_items: SaleItem[];
 };
 type LowStockProduct = { id: string; name: string; sku: string | null; stock: number };
 type Expense = { id: string; description: string; amount: number };
+type FixedExpense = { id: string; description: string; amount: number; start_date: string; end_date: string | null };
+type Loss = { amount: number; reason: "no_recibido" | "devolucion" | "otro" };
 
 const MONTHS = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
 function toDateStr(d: Date) { return d.toISOString().slice(0, 10); }
+const pad2 = (n: number) => String(n).padStart(2, "0");
+/* Primer y último día (YYYY-MM-DD) del mes m (1-12) */
+function monthBounds(y: number, m: number) {
+  return { first: `${y}-${pad2(m)}-01`, last: `${y}-${pad2(m)}-${pad2(new Date(y, m, 0).getDate())}` };
+}
+/* Un gasto fijo cuenta en el mes si empezó antes de que termine y no terminó antes de que empiece */
+function fixedActiveIn(f: { start_date: string; end_date: string | null }, first: string, last: string) {
+  return f.start_date <= last && (!f.end_date || f.end_date >= first);
+}
 
 export default function DashboardPage() {
+  const { unlocked, requestUnlock } = useProfitLock();
   const now      = new Date();
   const todayStr = toDateStr(now);
 
@@ -56,6 +70,7 @@ export default function DashboardPage() {
   const [sales,       setSales]       = useState<Sale[]>([]);
   const [lowStock,    setLowStock]    = useState<LowStockProduct[]>([]);
   const [gastosFijos, setGastosFijos] = useState(0);
+  const [losses,      setLosses]      = useState<Loss[]>([]);
   const [loading,     setLoading]     = useState(true);
   const [showCharts,  setShowCharts]  = useState(false);
 
@@ -64,11 +79,15 @@ export default function DashboardPage() {
   const [openDesglose, setOpenDesglose] = useState(false);
   const [openTable,    setOpenTable]    = useState(true);
   const [openStock,    setOpenStock]    = useState(true);
+  const [openTop,      setOpenTop]      = useState(true);
 
   /* ── estado caja del día ── */
   const [cajaDate,    setCajaDate]    = useState(todayStr);
   const [cajaSales,   setCajaSales]   = useState<Sale[]>([]);
   const [cajaExp,     setCajaExp]     = useState<Expense[]>([]);
+  const [cajaFixed,   setCajaFixed]   = useState<FixedExpense[]>([]);
+  const [cajaLosses,  setCajaLosses]  = useState<Loss[]>([]);
+  const [expFixed,    setExpFixed]    = useState(false);
   const [cajaLoading, setCajaLoading] = useState(false);
   const [expDesc,     setExpDesc]     = useState("");
   const [expAmount,   setExpAmount]   = useState<number | "">("");
@@ -86,23 +105,31 @@ export default function DashboardPage() {
       monthPairs.push({ m: cur.getMonth() + 1, y: cur.getFullYear() });
       cur.setMonth(cur.getMonth() + 1);
     }
-    const [salesRes, lowRes, ...fixedRes] = await Promise.all([
+    const [salesRes, lowRes, fixedRes, lossRes] = await Promise.all([
       supabase.from("sales")
-        .select("order_number, customer_name, total, shipping_cost, status, payment_type, created_at, sale_items(qty, unit_cost)")
+        .select("order_number, customer_name, total, shipping_cost, shipping_discount, status, payment_type, created_at, sale_items(qty, unit_cost)")
         .gte("created_at", `${dateFrom}T00:00:00`)
         .lte("created_at", `${dateTo}T23:59:59`)
         .order("created_at", { ascending: true }),
       supabase.from("low_stock_products").select("id, name, sku, stock"),
-      ...monthPairs.map(({ m, y }) =>
-        supabase.from("fixed_expenses").select("amount").eq("month", m).eq("year", y)
-      ),
+      supabase.from("fixed_expenses").select("amount, start_date, end_date")
+        .lte("start_date", dateTo)
+        .or(`end_date.is.null,end_date.gte.${dateFrom}`),
+      supabase.from("losses").select("amount, reason")
+        .gte("loss_date", dateFrom)
+        .lte("loss_date", dateTo),
     ]);
     setSales((salesRes.data ?? []) as unknown as Sale[]);
     setLowStock((lowRes.data ?? []) as LowStockProduct[]);
+    setLosses((lossRes.data ?? []) as Loss[]);
+    // Cada gasto fijo se cobra una vez por cada mes del rango en que está activo
     let totalFijos = 0;
-    for (const res of fixedRes)
-      for (const row of (res.data ?? []) as { amount: number }[])
-        totalFijos += Number(row.amount);
+    const fixedRows = (fixedRes.data ?? []) as { amount: number; start_date: string; end_date: string | null }[];
+    for (const { m, y } of monthPairs) {
+      const { first, last } = monthBounds(y, m);
+      for (const row of fixedRows)
+        if (fixedActiveIn(row, first, last)) totalFijos += Number(row.amount);
+    }
     setGastosFijos(totalFijos);
     setLoading(false);
   }
@@ -110,9 +137,11 @@ export default function DashboardPage() {
   /* ── load caja del día ── */
   async function loadCaja() {
     setCajaLoading(true);
-    const [sRes, eRes] = await Promise.all([
+    const [y, m] = cajaDate.split("-").map(Number);
+    const { first, last } = monthBounds(y, m);
+    const [sRes, eRes, fRes, lRes] = await Promise.all([
       supabase.from("sales")
-        .select("order_number, customer_name, total, shipping_cost, status, payment_type, created_at, sale_items(qty, unit_cost)")
+        .select("order_number, customer_name, total, shipping_cost, shipping_discount, status, payment_type, created_at, sale_items(qty, unit_cost)")
         .gte("created_at", `${cajaDate}T00:00:00`)
         .lte("created_at", `${cajaDate}T23:59:59`)
         .order("created_at", { ascending: false }),
@@ -120,9 +149,17 @@ export default function DashboardPage() {
         .select("id, description, amount")
         .eq("expense_date", cajaDate)
         .order("created_at", { ascending: false }),
+      supabase.from("fixed_expenses")
+        .select("id, description, amount, start_date, end_date")
+        .lte("start_date", last)
+        .or(`end_date.is.null,end_date.gte.${first}`)
+        .order("start_date"),
+      supabase.from("losses").select("amount, reason").eq("loss_date", cajaDate),
     ]);
     setCajaSales((sRes.data ?? []) as unknown as Sale[]);
     setCajaExp((eRes.data ?? []) as Expense[]);
+    setCajaFixed((fRes.data ?? []) as FixedExpense[]);
+    setCajaLosses((lRes.data ?? []) as Loss[]);
     setCajaLoading(false);
   }
 
@@ -136,14 +173,20 @@ export default function DashboardPage() {
   const ventasMes = useMemo(() =>
     entregadas.reduce((sum, s) => sum + Number(s.total), 0), [entregadas]);
 
-  const gananciaBruta = useMemo(() =>
-    entregadas.reduce((sum, s) => {
-      const c = s.sale_items.reduce((x, i) => x + Number(i.unit_cost) * Number(i.qty), 0);
-      return sum + (Number(s.total) - c);
-    }, 0), [entregadas]);
+  const costoProductos = useMemo(() =>
+    entregadas.reduce((sum, s) =>
+      sum + s.sale_items.reduce((x, i) => x + Number(i.unit_cost) * Number(i.qty), 0), 0), [entregadas]);
 
+  // Envío gratis por compras > Q300 (lo absorbe el negocio)
+  const envioGratis = useMemo(() =>
+    entregadas.reduce((sum, s) => sum + Number(s.shipping_discount || 0), 0), [entregadas]);
+
+  const gananciaBruta = ventasMes - costoProductos - envioGratis;
+
+  // Pérdidas registradas en el rango: envíos de no recibidos + devoluciones (Q64 c/u)
   const perdidaEnvios = useMemo(() =>
-    noRecibidos.reduce((sum, s) => sum + Number(s.shipping_cost || 0), 0), [noRecibidos]);
+    losses.reduce((sum, l) => sum + Number(l.amount || 0), 0), [losses]);
+  const devoluciones = useMemo(() => losses.filter(l => l.reason === "devolucion").length, [losses]);
 
   const gananciaNeta = gananciaBruta - gastosFijos - perdidaEnvios;
 
@@ -156,12 +199,16 @@ export default function DashboardPage() {
   const cajaCostoP = useMemo(() =>
     cajaEntregadas.reduce((sum, s) =>
       sum + s.sale_items.reduce((c, i) => c + Number(i.unit_cost) * Number(i.qty), 0), 0), [cajaEntregadas]);
-  const cajaGruta  = cajaVentas - cajaCostoP;
+  const cajaEnvioG = useMemo(() =>
+    cajaEntregadas.reduce((sum, s) => sum + Number(s.shipping_discount || 0), 0), [cajaEntregadas]);
+  const cajaGruta  = cajaVentas - cajaCostoP - cajaEnvioG;
   const cajaGastos = useMemo(() =>
     cajaExp.reduce((sum, e) => sum + Number(e.amount), 0), [cajaExp]);
   const cajaNeta   = cajaGruta - cajaGastos;
   const cajaPerd   = useMemo(() =>
-    cajaNoRec.reduce((sum, s) => sum + Number(s.shipping_cost || 0), 0), [cajaNoRec]);
+    cajaLosses.reduce((sum, l) => sum + Number(l.amount || 0), 0), [cajaLosses]);
+  const cajaFixedTotal = useMemo(() =>
+    cajaFixed.reduce((sum, f) => sum + Number(f.amount), 0), [cajaFixed]);
 
   /* ── tabla por día ── */
   const dailyData = useMemo(() => {
@@ -173,7 +220,8 @@ export default function DashboardPage() {
       const d = s.created_at.slice(0, 10);
       if (!map[d]) map[d] = { fecha: d, pedidos: 0, ventas: 0, costo: 0, ganancia: 0, pendientes: 0, enviados: 0, noRec: 0 };
       const row = map[d]; row.pedidos++;
-      const c = s.sale_items.reduce((x, i) => x + Number(i.unit_cost) * Number(i.qty), 0);
+      const c = s.sale_items.reduce((x, i) => x + Number(i.unit_cost) * Number(i.qty), 0)
+        + Number(s.shipping_discount || 0);
       if (s.status === "entregado") {
         row.ventas   += Number(s.total);
         row.costo    += c;
@@ -181,7 +229,7 @@ export default function DashboardPage() {
       }
       if (s.status === "pendiente")   row.pendientes++;
       if (s.status === "enviado")     row.enviados++;
-      if (s.status === "no_recibido") row.noRec++;
+      if (s.status === "no_recibido" || s.status === "devuelto") row.noRec++;
     }
     return Object.values(map).sort((a, b) => a.fecha.localeCompare(b.fecha));
   }, [sales]);
@@ -202,13 +250,33 @@ export default function DashboardPage() {
   async function addCajaExp() {
     if (!expDesc.trim() || !expAmount || Number(expAmount) <= 0) { alert("Completa descripción y monto"); return; }
     setExpSaving(true);
-    const { error } = await supabase.from("expenses").insert({
-      description: expDesc.trim(), amount: Number(expAmount), expense_date: cajaDate,
-    });
+    // Gasto fijo: se registra una vez y se cobra cada mes desde esta fecha
+    const { error } = expFixed
+      ? await supabase.from("fixed_expenses").insert({
+          description: expDesc.trim(), amount: Number(expAmount), start_date: cajaDate, category: "otros",
+        })
+      : await supabase.from("expenses").insert({
+          description: expDesc.trim(), amount: Number(expAmount), expense_date: cajaDate,
+        });
     setExpSaving(false);
     if (error) { alert(error.message); return; }
-    setExpDesc(""); setExpAmount("");
+    setExpDesc(""); setExpAmount(""); setExpFixed(false);
     loadCaja();
+    if (expFixed) loadData();
+  }
+  async function stopFixed(f: FixedExpense) {
+    const [y, m] = cajaDate.split("-").map(Number);
+    const { last } = monthBounds(y, m);
+    if (!confirm(`¿Dejar de repetir "${f.description}"?\n\nSe cobra este mes y ya no se repite desde el próximo.`)) return;
+    const { error } = await supabase.from("fixed_expenses").update({ end_date: last }).eq("id", f.id);
+    if (error) { alert(error.message); return; }
+    loadCaja(); loadData();
+  }
+  async function delFixed(f: FixedExpense) {
+    if (!confirm(`¿Eliminar el gasto fijo "${f.description}"?\n\nSe quitará de TODOS los meses.`)) return;
+    const { error } = await supabase.from("fixed_expenses").delete().eq("id", f.id);
+    if (error) { alert(error.message); return; }
+    loadCaja(); loadData();
   }
   async function delCajaExp(id: string) {
     if (!confirm("¿Eliminar gasto?")) return;
@@ -218,6 +286,7 @@ export default function DashboardPage() {
 
   /* ── PDF ── */
   async function downloadPDF() {
+    if (!unlocked) { requestUnlock(); return; }
     const { default: jsPDF }     = await import("jspdf");
     const { default: autoTable } = await import("jspdf-autotable");
     const doc = new jsPDF();
@@ -236,9 +305,11 @@ export default function DashboardPage() {
       head: [["Concepto", "Monto"]],
       body: [
         ["Ventas brutas",   `Q${ventasMes.toFixed(2)}`],
+        ["Costo productos", `- Q${costoProductos.toFixed(2)}`],
+        ["Envío gratis (> Q300)", envioGratis > 0 ? `- Q${envioGratis.toFixed(2)}` : "Q0.00"],
         ["Ganancia bruta",  `Q${gananciaBruta.toFixed(2)}`],
         ["Gastos fijos",    `- Q${gastosFijos.toFixed(2)}`],
-        ["Pérdidas envíos", perdidaEnvios > 0 ? `- Q${perdidaEnvios.toFixed(2)}` : "Q0.00"],
+        ["Pérdidas envíos y devoluciones", perdidaEnvios > 0 ? `- Q${perdidaEnvios.toFixed(2)}` : "Q0.00"],
         ["Ganancia neta",   `Q${gananciaNeta.toFixed(2)}`],
       ],
       theme: "grid",
@@ -365,37 +436,51 @@ export default function DashboardPage() {
           <Metric label="Ventas del período" value={`Q${ventasMes.toFixed(2)}`}
             icon={<TrendingUp size={15} />}
             sub={`${entregadas.length} entregada${entregadas.length !== 1 ? "s" : ""}`} />
-          <Metric label="Ganancia bruta" value={`Q${gananciaBruta.toFixed(2)}`}
-            icon={<Wallet size={15} />} negative={gananciaBruta < 0} sub="Ventas − costo productos" />
+          <Metric label="Ganancia bruta" value={<Hidden>Q{gananciaBruta.toFixed(2)}</Hidden>}
+            icon={<Wallet size={15} />} negative={unlocked && gananciaBruta < 0} sub="Ventas − costo productos" />
           <Metric label="Gastos fijos" value={`Q${gastosFijos.toFixed(2)}`}
             icon={<ShoppingBag size={15} />} sub="Del período" />
-          <Metric label="Ganancia neta" value={`Q${gananciaNeta.toFixed(2)}`}
-            icon={<Wallet size={15} />} negative={gananciaNeta < 0} sub="Bruta − gastos − pérdidas" />
+          <Metric label="Ganancia neta" value={<Hidden>Q{gananciaNeta.toFixed(2)}</Hidden>}
+            icon={<Wallet size={15} />} negative={unlocked && gananciaNeta < 0} sub="Bruta − gastos − pérdidas" />
         </div>
-        {noRecibidos.length > 0 && (
-          <div className="grid grid-cols-2 gap-3 pt-3">
+        {(noRecibidos.length > 0 || perdidaEnvios > 0) && (
+          <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 pt-3">
             <Metric label="No recibidos" value={`${noRecibidos.length}`} icon={<PackageX size={15} />} negative sub="Contra entrega" />
-            <Metric label="Pérdida envíos" value={`Q${perdidaEnvios.toFixed(2)}`} icon={<AlertTriangle size={15} />} negative sub="Costo de envío perdido" />
+            <Metric label="Devoluciones" value={`${devoluciones}`} icon={<Undo2 size={15} />} negative={devoluciones > 0} sub="Q64 c/u (2 envíos)" />
+            <Metric label="Pérdidas" value={`Q${perdidaEnvios.toFixed(2)}`} icon={<AlertTriangle size={15} />} negative sub="Envíos perdidos y devoluciones" />
           </div>
         )}
       </Collapsible>
 
       {/* DESGLOSE */}
       <Collapsible label="Desglose financiero" open={openDesglose} onToggle={() => setOpenDesglose(v => !v)}>
+        <HiddenBlock>
         <div className="space-y-2 text-sm pt-3">
           <DR label="Ventas brutas"       value={ventasMes}                 sign="+" pos />
-          <DR label="Costo de productos" value={ventasMes - gananciaBruta} sign="-" />
+          <DR label="Costo de productos" value={costoProductos}            sign="-" />
+          {envioGratis > 0 &&
+            <DR label="Envío gratis (compras > Q300)" value={envioGratis} sign="-" />
+          }
           <div className="border-t border-[rgb(var(--border))] pt-2">
             <DR label="Ganancia bruta"         value={gananciaBruta}              sign=""  pos={gananciaBruta >= 0} bold />
           </div>
           <DR label="Gastos fijos"             value={gastosFijos}                sign="-" />
           {perdidaEnvios > 0 &&
-            <DR label={`Pérdida envíos no recibidos (${noRecibidos.length})`} value={perdidaEnvios} sign="-" />
+            <DR label="Pérdidas (envíos no recibidos y devoluciones)" value={perdidaEnvios} sign="-" />
           }
           <div className="border-t border-[rgb(var(--border))] pt-2">
             <DR label="Ganancia neta"          value={gananciaNeta}               sign=""  pos={gananciaNeta >= 0} bold />
           </div>
         </div>
+        </HiddenBlock>
+      </Collapsible>
+
+      {/* PRODUCTOS MÁS VENDIDOS */}
+      <Collapsible
+        label={<span className="flex items-center gap-2"><Trophy size={14} /> Productos más vendidos</span>}
+        open={openTop} onToggle={() => setOpenTop(v => !v)}
+      >
+        <TopProducts />
       </Collapsible>
 
       {/* TABLA POR DÍA */}
@@ -426,7 +511,7 @@ export default function DashboardPage() {
                     <td className="p-3 text-right font-medium">{row.ventas > 0 ? `Q${row.ventas.toFixed(2)}` : "—"}</td>
                     <td className="p-3 text-right text-muted text-xs">{row.costo > 0 ? `Q${row.costo.toFixed(2)}` : "—"}</td>
                     <td className={`p-3 text-right font-semibold ${row.ganancia < 0 ? "text-red-500" : row.ganancia === 0 ? "text-muted" : ""}`}>
-                      {row.ventas > 0 ? `Q${row.ganancia.toFixed(2)}` : "—"}
+                      {row.ventas > 0 ? <Hidden>Q{row.ganancia.toFixed(2)}</Hidden> : "—"}
                     </td>
                     <td className="p-3 text-center">{row.pendientes > 0 ? <span className="badge badge-yellow">{row.pendientes}</span> : "—"}</td>
                     <td className="p-3 text-center">{row.enviados   > 0 ? <span className="badge badge-blue">{row.enviados}</span>     : "—"}</td>
@@ -440,7 +525,7 @@ export default function DashboardPage() {
                   <td className="p-3 text-center font-mono">{sales.length}</td>
                   <td className="p-3 text-right">Q{ventasMes.toFixed(2)}</td>
                   <td className="p-3 text-right text-muted text-xs">Q{(ventasMes - gananciaBruta).toFixed(2)}</td>
-                  <td className={`p-3 text-right ${gananciaBruta < 0 ? "text-red-500" : ""}`}>Q{gananciaBruta.toFixed(2)}</td>
+                  <td className={`p-3 text-right ${gananciaBruta < 0 ? "text-red-500" : ""}`}><Hidden>Q{gananciaBruta.toFixed(2)}</Hidden></td>
                   <td className="p-3 text-center">{dailyData.reduce((s, r) => s + r.pendientes, 0) || "—"}</td>
                   <td className="p-3 text-center">{dailyData.reduce((s, r) => s + r.enviados, 0)   || "—"}</td>
                   <td className="p-3 text-center text-red-500">{noRecibidos.length || "—"}</td>
@@ -526,12 +611,12 @@ export default function DashboardPage() {
             </div>
             <div className="card p-3 flex flex-col gap-1">
               <p className="text-xs text-muted">Ganancia bruta</p>
-              <p className={`text-lg font-bold ${cajaGruta < 0 ? "text-red-500" : ""}`}>Q{cajaGruta.toFixed(2)}</p>
+              <p className={`text-lg font-bold ${cajaGruta < 0 ? "text-red-500" : ""}`}><Hidden>Q{cajaGruta.toFixed(2)}</Hidden></p>
               <p className="text-[11px] text-muted">Ventas − costos</p>
             </div>
             <div className="card p-3 flex flex-col gap-1">
               <p className="text-xs text-muted">Ganancia neta</p>
-              <p className={`text-lg font-bold ${cajaNeta < 0 ? "text-red-500" : ""}`}>Q{cajaNeta.toFixed(2)}</p>
+              <p className={`text-lg font-bold ${cajaNeta < 0 ? "text-red-500" : ""}`}><Hidden>Q{cajaNeta.toFixed(2)}</Hidden></p>
               <p className="text-[11px] text-muted">Bruta − gastos op.</p>
             </div>
           </div>
@@ -539,8 +624,12 @@ export default function DashboardPage() {
           {/* Desglose del día */}
           <div className="card p-4 space-y-2 text-sm">
             <p className="text-xs font-semibold text-muted uppercase tracking-wider mb-3">Desglose</p>
+            <HiddenBlock>
             <DR label="Ventas brutas"           value={cajaVentas}  sign="+" pos />
             <DR label="Costo de productos"      value={cajaCostoP}  sign="-" />
+            {cajaEnvioG > 0 &&
+              <DR label="Envío gratis (compras > Q300)" value={cajaEnvioG} sign="-" />
+            }
             <div className="border-t border-[rgb(var(--border))] pt-2">
               <DR label="Ganancia bruta"        value={cajaGruta}   sign=""  pos={cajaGruta >= 0} bold />
             </div>
@@ -550,9 +639,10 @@ export default function DashboardPage() {
             </div>
             {cajaPerd > 0 && (
               <div className="border-t border-[rgb(var(--border))] pt-2">
-                <DR label={`Pérdida no recibidos (${cajaNoRec.length})`} value={cajaPerd} sign="-" />
+                <DR label="Pérdidas (no recibidos y devoluciones)" value={cajaPerd} sign="-" />
               </div>
             )}
+            </HiddenBlock>
           </div>
 
           {/* Gastos operacionales CRUD */}
@@ -576,6 +666,10 @@ export default function DashboardPage() {
               <button onClick={addCajaExp} disabled={expSaving} className="btn btn-primary">
                 <Plus size={15} /> Agregar
               </button>
+              <label className="w-full flex items-start gap-2 text-sm text-muted cursor-pointer">
+                <input type="checkbox" className="mt-0.5" checked={expFixed} onChange={e => setExpFixed(e.target.checked)} />
+                <span>Gasto fijo (se repite cada mes automáticamente, sin volver a registrarlo)</span>
+              </label>
             </div>
             {cajaLoading ? (
               <p className="text-sm text-muted">Cargando…</p>
@@ -616,13 +710,65 @@ export default function DashboardPage() {
             )}
           </div>
 
+          {/* Gastos fijos activos este mes */}
+          {cajaFixed.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-xs font-semibold text-muted uppercase tracking-wider">
+                Gastos fijos del mes ({cajaFixed.length})
+              </p>
+              <div className="card p-0 overflow-x-auto">
+                <table className="min-w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-[rgb(var(--border))] text-muted text-xs uppercase tracking-wider">
+                      <th className="p-3 text-left">Descripción</th>
+                      <th className="p-3 text-left">Desde</th>
+                      <th className="p-3 text-right">Monto</th>
+                      <th className="p-3 text-center">Acciones</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {cajaFixed.map(f => (
+                      <tr key={f.id} className="border-t border-[rgb(var(--border))]">
+                        <td className="p-3">
+                          {f.description} <span className="badge badge-gray text-[10px] ml-1">Fijo</span>
+                          {f.end_date && <p className="text-[11px] text-muted">Termina este mes</p>}
+                        </td>
+                        <td className="p-3 text-muted text-xs whitespace-nowrap">
+                          {new Date(f.start_date + "T12:00:00").toLocaleDateString("es-GT", { day: "numeric", month: "short", year: "numeric" })}
+                        </td>
+                        <td className="p-3 text-right font-medium text-red-500">Q{Number(f.amount).toFixed(2)}</td>
+                        <td className="p-3 text-center whitespace-nowrap">
+                          {!f.end_date && (
+                            <button onClick={() => stopFixed(f)} title="Dejar de repetir" className="text-muted hover:text-[rgb(var(--text))] p-1">
+                              <PinOff size={15} />
+                            </button>
+                          )}
+                          <button onClick={() => delFixed(f)} title="Eliminar" className="text-red-500 hover:text-red-700 p-1">
+                            <Trash2 size={15} />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="border-t border-[rgb(var(--border))] bg-[rgb(var(--card-soft))] font-semibold">
+                      <td className="p-3" colSpan={2}>Total fijos del mes</td>
+                      <td className="p-3 text-right text-red-500">Q{cajaFixedTotal.toFixed(2)}</td>
+                      <td></td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </div>
+          )}
+
           {/* Alerta no recibidos */}
           {cajaNoRec.length > 0 && (
             <div className="flex items-start gap-3 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-red-500 text-sm">
               <PackageX size={16} className="shrink-0 mt-0.5" />
               <div>
                 <p className="font-semibold">{cajaNoRec.length} pedido{cajaNoRec.length !== 1 ? "s" : ""} no recibido{cajaNoRec.length !== 1 ? "s" : ""}</p>
-                <p className="text-xs mt-0.5 opacity-80">Pérdida por envíos: Q{cajaPerd.toFixed(2)}</p>
+                <p className="text-xs mt-0.5 opacity-80">Pérdidas del día (envíos y devoluciones): Q{cajaPerd.toFixed(2)}</p>
               </div>
             </div>
           )}
@@ -651,7 +797,7 @@ function Collapsible({ label, open, onToggle, children }: {
 
 /* ─── Metric card ─── */
 function Metric({ icon, label, value, sub, negative }: {
-  icon: React.ReactNode; label: string; value: string; sub?: string; negative?: boolean;
+  icon: React.ReactNode; label: string; value: React.ReactNode; sub?: string; negative?: boolean;
 }) {
   return (
     <div className="card p-4 flex flex-col gap-1">

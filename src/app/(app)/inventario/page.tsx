@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Search, Plus, Pencil, Trash2, PackageCheck, PackageX, Tag, X, Save, Store } from "lucide-react";
+import { Search, Plus, Pencil, Trash2, PackageCheck, PackageX, Tag, X, Save, Store, Shirt, Layers } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
+import { Hidden } from "@/components/ProfitLock";
 
 type Category = { id: string; name: string };
 type Supplier = { id: string; name: string };
@@ -14,7 +15,16 @@ type Product = {
   supplier_id: string | null;
   categories: { name: string } | null;
   suppliers:  { name: string } | null;
+  // Diseño estampado sobre una prenda lisa: usa el stock de esa prenda
+  base_product_id: string | null;
+  base: { name: string; stock: number } | null;
 };
+
+// Prenda lisa que puede servir de base para diseños
+type BaseOption = { id: string; name: string; stock: number };
+
+/* Stock real: el de la prenda base si es un diseño */
+const stockOf = (p: Product) => (p.base ? p.base.stock : p.stock);
 
 export default function InventarioPage() {
   const [q,          setQ]          = useState("");
@@ -27,21 +37,33 @@ export default function InventarioPage() {
   const [creating,   setCreating]   = useState(false);
   const [editing,    setEditing]    = useState<Product | null>(null);
   const [catModal,   setCatModal]   = useState(false);
+  const [bases,      setBases]      = useState<BaseOption[]>([]);
+  // prenda base id → cantidad de diseños que la usan
+  const [designCount, setDesignCount] = useState<Record<string, number>>({});
 
   async function loadMeta() {
-    const [catsRes, supsRes] = await Promise.all([
+    const [catsRes, supsRes, basesRes, designsRes] = await Promise.all([
       supabase.from("categories").select("id, name").order("name"),
       supabase.from("suppliers").select("id, name").order("name"),
+      supabase.from("products").select("id, name, stock")
+        .eq("active", true).is("base_product_id", null).order("name"),
+      supabase.from("products").select("base_product_id")
+        .eq("active", true).not("base_product_id", "is", null),
     ]);
     setCategories((catsRes.data as Category[]) ?? []);
     setSuppliers((supsRes.data as Supplier[]) ?? []);
+    setBases((basesRes.data as BaseOption[]) ?? []);
+    const counts: Record<string, number> = {};
+    for (const d of (designsRes.data ?? []) as { base_product_id: string }[])
+      counts[d.base_product_id] = (counts[d.base_product_id] ?? 0) + 1;
+    setDesignCount(counts);
   }
 
   async function load() {
     setLoading(true);
     let query = supabase
       .from("products")
-      .select("id, name, sku, stock, cost, price, category_id, supplier_id, categories(name), suppliers(name)")
+      .select("id, name, sku, stock, cost, price, category_id, supplier_id, base_product_id, categories(name), suppliers(name), base:base_product_id(name, stock)")
       .eq("active", true)
       .order("name");
     if (q.trim())   query = query.or(`name.ilike.%${q}%,sku.ilike.%${q}%`);
@@ -57,11 +79,16 @@ export default function InventarioPage() {
   useEffect(() => { load(); }, []);
   useEffect(() => { const t = setTimeout(load, 250); return () => clearTimeout(t); }, [q, filterCat, filterSup]);
 
-  async function deleteProduct(id: string) {
+  async function deleteProduct(p: Product) {
+    const n = designCount[p.id] ?? 0;
+    if (n > 0) {
+      alert(`"${p.name}" es la prenda lisa de ${n} diseño${n !== 1 ? "s" : ""}.\n\nCambia o elimina esos diseños antes de eliminarla.`);
+      return;
+    }
     if (!confirm("¿Eliminar este producto? El historial se conserva.")) return;
-    const { error } = await supabase.from("products").update({ active: false }).eq("id", id);
+    const { error } = await supabase.from("products").update({ active: false }).eq("id", p.id);
     if (error) { alert(error.message); return; }
-    load();
+    load(); loadMeta();
   }
 
   const margin = (p: Product) =>
@@ -125,6 +152,7 @@ export default function InventarioPage() {
                   <td className="p-3">
                     <p className="font-medium">{p.name}</p>
                     {p.sku && <p className="text-xs text-muted font-mono mt-0.5">{p.sku}</p>}
+                    <BaseInfo p={p} designs={designCount[p.id] ?? 0} />
                   </td>
                   <td className="p-3">
                     <div className="flex flex-col gap-1">
@@ -134,24 +162,27 @@ export default function InventarioPage() {
                     </div>
                   </td>
                   <td className="p-3 text-center">
-                    <span className={`badge ${p.stock <= 0 ? "badge-red" : p.stock <= 5 ? "badge-orange" : "badge-green"}`}>
-                      {p.stock <= 0 ? "Sin stock" : p.stock}
+                    <span className={`badge ${stockOf(p) <= 0 ? "badge-red" : stockOf(p) <= 5 ? "badge-orange" : "badge-green"}`}>
+                      {stockOf(p) <= 0 ? "Sin stock" : stockOf(p)}
                     </span>
+                    {p.base && <p className="text-[10px] text-muted mt-1">compartido</p>}
                   </td>
                   <td className="p-3 text-right">
                     <p className="font-medium">Q{p.price.toFixed(2)}</p>
                     <p className="text-xs text-muted">costo Q{p.cost.toFixed(2)}</p>
                   </td>
                   <td className="p-3 text-right">
-                    <p className={`font-semibold ${margin(p) < 10 ? "text-red-500" : margin(p) < 30 ? "text-yellow-500" : ""}`}>
-                      {margin(p)}%
-                    </p>
-                    <p className="text-xs text-muted">+Q{(p.price - p.cost).toFixed(2)}</p>
+                    <Hidden>
+                      <p className={`font-semibold ${margin(p) < 10 ? "text-red-500" : margin(p) < 30 ? "text-yellow-500" : ""}`}>
+                        {margin(p)}%
+                      </p>
+                      <p className="text-xs text-muted">+Q{(p.price - p.cost).toFixed(2)}</p>
+                    </Hidden>
                   </td>
                   <td className="p-3 text-center">
                     <div className="flex items-center justify-center gap-1">
                       <button onClick={() => setEditing(p)} className="btn btn-ghost p-2"><Pencil size={14} /></button>
-                      <button onClick={() => deleteProduct(p.id)} className="btn btn-ghost p-2 text-red-500"><Trash2 size={14} /></button>
+                      <button onClick={() => deleteProduct(p)} className="btn btn-ghost p-2 text-red-500"><Trash2 size={14} /></button>
                     </div>
                   </td>
                 </tr>
@@ -183,24 +214,27 @@ export default function InventarioPage() {
                     </span>
                   )}
                 </div>
+                <BaseInfo p={p} designs={designCount[p.id] ?? 0} />
               </div>
-              <span className={`badge shrink-0 ${p.stock <= 0 ? "badge-red" : p.stock <= 5 ? "badge-orange" : "badge-green"}`}>
-                {p.stock <= 0
+              <span className={`badge shrink-0 ${stockOf(p) <= 0 ? "badge-red" : stockOf(p) <= 5 ? "badge-orange" : "badge-green"}`}>
+                {stockOf(p) <= 0
                   ? <><PackageX size={10} className="mr-1" />Sin stock</>
-                  : <><PackageCheck size={10} className="mr-1" />{p.stock}</>}
+                  : <><PackageCheck size={10} className="mr-1" />{stockOf(p)}</>}
               </span>
             </div>
             <div className="flex items-center gap-3 mt-3 text-sm text-muted flex-wrap">
               <span>Costo: <b className="text-[rgb(var(--text))]">Q{p.cost.toFixed(2)}</b></span>
               <span>Precio: <b className="text-[rgb(var(--text))]">Q{p.price.toFixed(2)}</b></span>
-              <span className="font-medium">+Q{(p.price - p.cost).toFixed(2)}</span>
+              <Hidden>
+                <span className="font-medium">+Q{(p.price - p.cost).toFixed(2)}</span>
+              </Hidden>
               <span className={`ml-auto font-semibold ${margin(p) < 10 ? "text-red-500" : margin(p) < 30 ? "text-yellow-500" : ""}`}>
-                {margin(p)}%
+                <Hidden>{margin(p)}%</Hidden>
               </span>
             </div>
             <div className="flex gap-2 mt-3 pt-3 border-t border-[rgb(var(--border))]">
               <button onClick={() => setEditing(p)} className="btn btn-ghost flex-1 text-sm"><Pencil size={13} /> Editar</button>
-              <button onClick={() => deleteProduct(p.id)} className="btn btn-ghost flex-1 text-sm text-red-500"><Trash2 size={13} /> Eliminar</button>
+              <button onClick={() => deleteProduct(p)} className="btn btn-ghost flex-1 text-sm text-red-500"><Trash2 size={13} /> Eliminar</button>
             </div>
           </div>
         ))}
@@ -210,13 +244,15 @@ export default function InventarioPage() {
       {/* MODALES */}
       {creating && (
         <ProductModal title="Nuevo producto" categories={categories} suppliers={suppliers}
+          bases={bases} designs={0}
           onClose={() => setCreating(false)}
-          onSaved={() => { setCreating(false); load(); }} />
+          onSaved={() => { setCreating(false); load(); loadMeta(); }} />
       )}
       {editing && (
         <ProductModal title="Editar producto" initial={editing} categories={categories} suppliers={suppliers}
+          bases={bases} designs={designCount[editing.id] ?? 0}
           onClose={() => setEditing(null)}
-          onSaved={() => { setEditing(null); load(); }} />
+          onSaved={() => { setEditing(null); load(); loadMeta(); }} />
       )}
       {catModal && (
         <CategoriesModal categories={categories} onClose={() => { setCatModal(false); loadMeta(); }} />
@@ -225,9 +261,25 @@ export default function InventarioPage() {
   );
 }
 
+/* ── Etiqueta: diseño sobre prenda lisa / prenda lisa con diseños ── */
+function BaseInfo({ p, designs }: { p: Product; designs: number }) {
+  if (p.base) return (
+    <p className="text-xs text-muted flex items-center gap-1 mt-1">
+      <Layers size={11} className="shrink-0" /> Diseño sobre <span className="font-medium text-[rgb(var(--text))]">{p.base.name}</span>
+    </p>
+  );
+  if (designs > 0) return (
+    <p className="text-xs text-muted flex items-center gap-1 mt-1">
+      <Shirt size={11} className="shrink-0" /> Prenda lisa · {designs} diseño{designs !== 1 ? "s" : ""}
+    </p>
+  );
+  return null;
+}
+
 /* ── Modal Producto ── */
-function ProductModal({ title, initial, categories, suppliers, onClose, onSaved }: {
+function ProductModal({ title, initial, categories, suppliers, bases, designs, onClose, onSaved }: {
   title: string; initial?: Product; categories: Category[]; suppliers: Supplier[];
+  bases: BaseOption[]; designs: number;
   onClose: () => void; onSaved: () => void;
 }) {
   const [name,    setName]    = useState(initial?.name        ?? "");
@@ -237,7 +289,12 @@ function ProductModal({ title, initial, categories, suppliers, onClose, onSaved 
   const [price,   setPrice]   = useState<number | "">(initial?.price ?? "");
   const [catId,   setCatId]   = useState<string>(initial?.category_id ?? "");
   const [supId,   setSupId]   = useState<string>(initial?.supplier_id ?? "");
+  const [baseId,  setBaseId]  = useState<string>(initial?.base_product_id ?? "");
   const [saving,  setSaving]  = useState(false);
+
+  // Un diseño no puede ser base de otro, ni una prenda lisa con diseños puede volverse diseño
+  const baseOptions = bases.filter(b => b.id !== initial?.id);
+  const base = bases.find(b => b.id === baseId);
 
   async function save() {
     if (!name.trim()) { alert("El nombre es obligatorio"); return; }
@@ -245,11 +302,13 @@ function ProductModal({ title, initial, categories, suppliers, onClose, onSaved 
     const payload = {
       name:        name.trim(),
       sku:         sku.trim() || null,
-      stock:       Number(stock  || 0),
+      // Los diseños no llevan stock propio: usan el de la prenda lisa
+      stock:       baseId ? 0 : Number(stock || 0),
       cost:        Number(cost   || 0),
       price:       Number(price  || 0),
       category_id: catId || null,
       supplier_id: supId || null,
+      base_product_id: baseId || null,
     };
     const { error } = initial
       ? await supabase.from("products").update(payload).eq("id", initial.id)
@@ -294,15 +353,40 @@ function ProductModal({ title, initial, categories, suppliers, onClose, onSaved 
             </div>
           </div>
           <div>
+            <label className="text-xs text-muted flex items-center gap-1 mb-1">
+              <Shirt size={11}/> Prenda lisa base (para diseños estampados)
+            </label>
+            <select className="input w-full" value={baseId} disabled={designs > 0}
+              onChange={(e) => setBaseId(e.target.value)}>
+              <option value="">Ninguna — tiene su propio stock</option>
+              {baseOptions.map(b => <option key={b.id} value={b.id}>{b.name} ({b.stock} uds)</option>)}
+            </select>
+            {designs > 0 && (
+              <p className="text-[11px] text-muted mt-1">
+                Esta es la prenda lisa de {designs} diseño{designs !== 1 ? "s" : ""}: su stock lo comparten todos.
+              </p>
+            )}
+          </div>
+          <div>
             <label className="text-xs text-muted block mb-1">Código SKU (opcional)</label>
             <input className="input w-full" value={sku} onChange={(e) => setSku(e.target.value)} placeholder="Ej: PROD-001" />
           </div>
-          <div className="grid grid-cols-3 gap-3">
-            <div>
-              <label className="text-xs text-muted block mb-1">Stock</label>
-              <input className="input w-full" type="number" min={0} value={stock}
-                onChange={(e) => setStock(e.target.value === "" ? "" : Number(e.target.value))} />
-            </div>
+          {baseId && (
+            <p className="text-xs bg-[rgb(var(--card-soft))] rounded-lg px-3 py-2">
+              {base
+                ? <>Stock compartido: usa las <b>{base.stock} uds</b> de <b>{base.name}</b>. </>
+                : <>Stock compartido con la prenda lisa. </>}
+              Cada venta de este diseño se descuenta de esa prenda lisa.
+            </p>
+          )}
+          <div className={`grid ${baseId ? "grid-cols-2" : "grid-cols-3"} gap-3`}>
+            {!baseId && (
+              <div>
+                <label className="text-xs text-muted block mb-1">Stock</label>
+                <input className="input w-full" type="number" min={0} value={stock}
+                  onChange={(e) => setStock(e.target.value === "" ? "" : Number(e.target.value))} />
+              </div>
+            )}
             <div>
               <label className="text-xs text-muted block mb-1">Costo (Q)</label>
               <input className="input w-full" type="number" min={0} step="0.01" value={cost}

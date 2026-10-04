@@ -4,12 +4,13 @@ import { useState } from "react";
 import AppHeader from "./AppHeader";
 import AppSidebar from "./AppSidebar";
 import BottomNav from "./BottomNav";
+import { ProfitLockProvider } from "./ProfitLock";
 
 export default function Shell({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   return (
-    <>
+    <ProfitLockProvider>
       <AppHeader />
 
       <div className="flex flex-1 min-h-0">
@@ -32,6 +33,6 @@ export default function Shell({ children }: { children: React.ReactNode }) {
       </div>
 
       <BottomNav onMenuClick={() => setSidebarOpen(v => !v)} />
-    </>
+    </ProfitLockProvider>
   );
 }

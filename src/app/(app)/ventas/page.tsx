@@ -3,9 +3,11 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import {
   ChevronDown, ChevronRight, Trash2,
-  AlertTriangle, Filter, Search,
+  AlertTriangle, Filter, Search, Undo2, X,
 } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
+import { Hidden } from "@/components/ProfitLock";
+import { RETURN_LOSS } from "@/lib/constants";
 
 type Vendor = { id: string; name: string };
 
@@ -22,7 +24,7 @@ type SaleItem = {
   product_name: string;
 };
 
-type Status = "pendiente" | "enviado" | "entregado" | "no_recibido";
+type Status = "pendiente" | "enviado" | "entregado" | "no_recibido" | "devuelto";
 type PaymentType = "pagado" | "contra_entrega";
 
 type Sale = {
@@ -35,7 +37,9 @@ type Sale = {
   concept: string | null;
   total: number;
   shipping_cost: number;
+  shipping_discount: number;
   status: Status;
+  return_reason: string | null;
   sent_at: string | null;
   created_at: string;
   sale_items: SaleItem[];
@@ -50,6 +54,7 @@ const STATUS_LABELS: Record<Status, string> = {
   enviado:      "Enviado",
   entregado:    "Entregado",
   no_recibido:  "No recibido",
+  devuelto:     "Devolución",
 };
 
 const STATUS_COLORS: Record<Status, string> = {
@@ -57,9 +62,13 @@ const STATUS_COLORS: Record<Status, string> = {
   enviado:     "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
   entregado:   "bg-[rgb(var(--card-soft))] text-[rgb(var(--text))] dark:bg-[rgb(var(--card-soft))]",
   no_recibido: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
+  devuelto:    "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400",
 };
 
-const STATUS_FLOW: Status[] = ["pendiente", "enviado", "entregado", "no_recibido"];
+const STATUS_FLOW: Status[] = ["pendiente", "enviado", "entregado", "no_recibido", "devuelto"];
+
+// Ventas cerradas: el stock ya regresó y la pérdida ya se registró
+const isClosed = (s: Sale) => s.status === "no_recibido" || s.status === "devuelto";
 
 function isOverdue(sale: Sale): boolean {
   if (sale.status !== "enviado" || !sale.sent_at) return false;
@@ -69,7 +78,7 @@ function isOverdue(sale: Sale): boolean {
 
 function getProfit(sale: Sale) {
   const costos = sale.sale_items.reduce((sum, i) => sum + i.unit_cost * i.qty, 0);
-  return sale.total - costos;
+  return sale.total - costos - Number(sale.shipping_discount || 0);
 }
 
 /* =====================
@@ -83,6 +92,7 @@ export default function VentasPage() {
   const [productVendorMap, setProductVendorMap] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [openRows, setOpenRows] = useState<string[]>([]);
+  const [returning, setReturning] = useState<Sale | null>(null);
 
   // Búsqueda y filtros
   const [search,         setSearch]         = useState("");
@@ -108,8 +118,8 @@ export default function VentasPage() {
       .select(`
         id, order_number, customer_name, customer_phone,
         tracking_number, payment_type, concept,
-        total, shipping_cost,
-        status, sent_at, created_at,
+        total, shipping_cost, shipping_discount,
+        status, return_reason, sent_at, created_at,
         sale_items ( id, product_id, qty, unit_price, unit_cost, product_name )
       `)
       .order("created_at", { ascending: false });
@@ -173,6 +183,9 @@ export default function VentasPage() {
   ===================== */
 
   async function changeStatus(sale: Sale, newStatus: Status) {
+    // La devolución pide primero la razón (obligatoria) en un modal
+    if (newStatus === "devuelto") { setReturning(sale); return; }
+
     if (newStatus === "no_recibido") {
       const ok = confirm(
         `¿Marcar como "No recibido"?\n\n• El producto vuelve al inventario.\n• Se registrará una pérdida de Q${sale.shipping_cost} por el costo de envío.\n\nEsta acción no se puede deshacer.`
@@ -189,50 +202,32 @@ export default function VentasPage() {
     else loadSales();
   }
 
+  async function registerReturn(sale: Sale, reason: string) {
+    const { error } = await supabase.rpc("update_sale_status", {
+      p_sale_id:    sale.id,
+      p_new_status: "devuelto",
+      p_reason:     reason,
+    });
+    if (error) { alert(error.message); return false; }
+    setReturning(null);
+    loadSales();
+    return true;
+  }
+
   /* =====================
      DELETE SALE
   ===================== */
 
   async function deleteSale(sale: Sale) {
-    // no_recibido: el stock ya fue devuelto por el trigger SQL, no restaurar de nuevo
-    const needsRestoreStock = sale.status !== "no_recibido";
-    const msg = needsRestoreStock
+    // no_recibido / devuelto: el stock ya fue devuelto por update_sale_status, no restaurar de nuevo
+    const msg = !isClosed(sale)
       ? "¿Eliminar esta venta?\n\n• El stock de los productos volverá al inventario.\n\nEsta acción no se puede deshacer."
       : "¿Eliminar esta venta? Esta acción no se puede deshacer.";
     if (!confirm(msg)) return;
 
-    // 1. Restaurar stock si el pedido no fue entregado ni ya devuelto
-    if (needsRestoreStock) {
-      const productIds = sale.sale_items
-        .filter((i) => i.product_id)
-        .map((i) => i.product_id as string);
-
-      if (productIds.length > 0) {
-        const { data: products } = await supabase
-          .from("products")
-          .select("id, stock")
-          .in("id", productIds);
-
-        if (products) {
-          for (const item of sale.sale_items) {
-            if (!item.product_id) continue;
-            const prod = products.find((p) => p.id === item.product_id);
-            if (prod) {
-              await supabase
-                .from("products")
-                .update({ stock: prod.stock + item.qty })
-                .eq("id", item.product_id);
-            }
-          }
-        }
-      }
-    }
-
-    // 2. Eliminar pérdidas asociadas (evita FK constraint)
-    await supabase.from("losses").delete().eq("sale_id", sale.id);
-
-    // 3. Eliminar venta (sale_items se eliminan por CASCADE)
-    await supabase.from("sales").delete().eq("id", sale.id);
+    // delete_sale devuelve el stock (a la prenda base si era un diseño) y borra la venta con sus pérdidas
+    const { error } = await supabase.rpc("delete_sale", { p_sale_id: sale.id });
+    if (error) { alert(error.message); return; }
     loadSales();
   }
 
@@ -447,15 +442,21 @@ export default function VentasPage() {
                       </td>
 
                       {/* TOTAL */}
-                      <td className="p-3 text-right font-medium">Q{s.total.toFixed(2)}</td>
+                      <td className={`p-3 text-right font-medium ${s.status === "devuelto" ? "line-through text-muted" : ""}`}>
+                        Q{s.total.toFixed(2)}
+                      </td>
 
-                      {/* GANANCIA */}
+                      {/* GANANCIA — una devolución no es venta: solo muestra la pérdida de 2 envíos */}
                       <td className={`p-3 text-right font-medium ${
-                        s.status === "no_recibido"
+                        s.status === "devuelto"
+                          ? "text-red-500"
+                          : s.status === "no_recibido"
                           ? "text-red-500 line-through opacity-60"
                           : profit < 0 ? "text-red-500" : ""
                       }`}>
-                        Q{profit.toFixed(2)}
+                        {s.status === "devuelto"
+                          ? <span title="Devolución: no cuenta como venta, solo se pierden 2 envíos">−Q{RETURN_LOSS.toFixed(2)}</span>
+                          : <Hidden>Q{profit.toFixed(2)}</Hidden>}
                       </td>
 
                       {/* ESTADO */}
@@ -463,7 +464,8 @@ export default function VentasPage() {
                         <select
                           value={s.status}
                           onChange={(e) => changeStatus(s, e.target.value as Status)}
-                          className={`text-xs font-medium rounded-full px-2 py-1 border-0 cursor-pointer ${STATUS_COLORS[s.status]}`}
+                          disabled={isClosed(s)}
+                          className={`text-xs font-medium rounded-full px-2 py-1 border-0 cursor-pointer disabled:cursor-default ${STATUS_COLORS[s.status]}`}
                         >
                           {STATUS_FLOW.map((st) => (
                             <option key={st} value={st}>{STATUS_LABELS[st]}</option>
@@ -472,7 +474,16 @@ export default function VentasPage() {
                       </td>
 
                       {/* ACCIONES */}
-                      <td className="p-3 text-center">
+                      <td className="p-3 text-center whitespace-nowrap">
+                        {!isClosed(s) && (
+                          <button
+                            onClick={() => changeStatus(s, "devuelto")}
+                            title={`Registrar devolución (−Q${RETURN_LOSS})`}
+                            className="text-purple-500 hover:text-purple-700 p-1"
+                          >
+                            <Undo2 size={15} />
+                          </button>
+                        )}
                         <button
                           onClick={() => deleteSale(s)}
                           title="Eliminar venta"
@@ -506,6 +517,17 @@ export default function VentasPage() {
                               {s.shipping_cost > 0 && (
                                 <p><span className="font-medium text-[rgb(var(--text))]">Envío:</span> Q{s.shipping_cost.toFixed(2)}</p>
                               )}
+                              {s.shipping_discount > 0 && (
+                                <p><span className="font-medium text-[rgb(var(--text))]">Envío gratis (oferta):</span> −Q{Number(s.shipping_discount).toFixed(2)}</p>
+                              )}
+                              {s.status === "devuelto" && (
+                                <div className="text-purple-500">
+                                  <p className="font-medium">Devolución — no cuenta como venta. Pérdida: Q{RETURN_LOSS} (2 envíos)</p>
+                                  {s.return_reason && (
+                                    <p><span className="font-medium">Razón:</span> {s.return_reason}</p>
+                                  )}
+                                </div>
+                              )}
                               {overdue && (
                                 <p className="text-red-500 font-medium">
                                   ⚠ Enviado hace más de 15 días sin actualizar
@@ -530,6 +552,94 @@ export default function VentasPage() {
             </tbody>
           </table>
         )}
+      </div>
+
+      {returning && (
+        <ReturnModal
+          sale={returning}
+          onClose={() => setReturning(null)}
+          onConfirm={(reason) => registerReturn(returning, reason)}
+        />
+      )}
+    </div>
+  );
+}
+
+/* =====================
+   MODAL DEVOLUCIÓN
+===================== */
+
+const RETURN_REASONS = [
+  "Talla incorrecta",
+  "Producto dañado o con defecto",
+  "Diseño o color equivocado",
+  "El cliente ya no lo quiso",
+  "Otra razón",
+];
+
+function ReturnModal({ sale, onClose, onConfirm }: {
+  sale: Sale;
+  onClose: () => void;
+  onConfirm: (reason: string) => Promise<boolean>;
+}) {
+  const [reason, setReason] = useState("");
+  const [detail, setDetail] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const isOther = reason === "Otra razón";
+  const valid   = isOther ? detail.trim() !== "" : reason !== "";
+
+  async function submit() {
+    if (!valid) return;
+    setSaving(true);
+    const finalReason = isOther ? detail.trim() : [reason, detail.trim()].filter(Boolean).join(" — ");
+    const ok = await onConfirm(finalReason);
+    if (!ok) setSaving(false);
+  }
+
+  return (
+    <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal-box">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="font-semibold text-base flex items-center gap-2">
+            <Undo2 size={16} className="text-purple-500" /> Registrar devolución
+          </h2>
+          <button onClick={onClose} className="text-muted hover:text-[rgb(var(--text))]"><X size={18} /></button>
+        </div>
+
+        <p className="text-sm">
+          Pedido <span className="font-mono font-medium">{sale.order_number}</span> · {sale.customer_name}
+        </p>
+        <ul className="text-xs text-muted mt-2 mb-4 space-y-1 list-disc pl-4">
+          <li>No se cuenta como venta (los Q{Number(sale.total).toFixed(2)} no entran en ventas ni ganancias).</li>
+          <li>El producto regresa al inventario.</li>
+          <li>Solo se pierden 2 envíos: Q{RETURN_LOSS / 2} + Q{RETURN_LOSS / 2} = <b className="text-red-500">Q{RETURN_LOSS}</b>.</li>
+        </ul>
+
+        <div className="space-y-3">
+          <div>
+            <label className="text-xs text-muted block mb-1">Razón de devolución *</label>
+            <select className="input w-full" value={reason} onChange={(e) => setReason(e.target.value)} autoFocus>
+              <option value="">Selecciona una razón…</option>
+              {RETURN_REASONS.map((r) => <option key={r} value={r}>{r}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs text-muted block mb-1">
+              {isOther ? "Describe la razón *" : "Detalle (opcional)"}
+            </label>
+            <textarea className="input w-full resize-none" rows={2}
+              placeholder={isOther ? "¿Por qué se devolvió?" : "Ej: pidió talla M en lugar de L"}
+              value={detail} onChange={(e) => setDetail(e.target.value)} />
+          </div>
+        </div>
+
+        <div className="flex gap-2 mt-5">
+          <button onClick={onClose} className="btn btn-ghost flex-1">Cancelar</button>
+          <button onClick={submit} disabled={!valid || saving} className="btn btn-primary flex-1">
+            {saving ? "Guardando…" : `Registrar devolución (−Q${RETURN_LOSS})`}
+          </button>
+        </div>
       </div>
     </div>
   );
