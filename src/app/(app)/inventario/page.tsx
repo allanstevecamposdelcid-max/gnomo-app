@@ -124,11 +124,11 @@ export default function InventarioPage() {
             placeholder="Buscar por nombre o SKU…" className="input pl-9 w-full" />
         </div>
         <select className="input w-full sm:w-auto min-w-0" value={filterCat} onChange={(e) => setFilterCat(e.target.value)}>
-          <option value="">Todas las categorías</option>
+          <option value="">Categorías</option>
           {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
         <select className="input w-full sm:w-auto min-w-0" value={filterSup} onChange={(e) => setFilterSup(e.target.value)}>
-          <option value="">Todos los proveedores</option>
+          <option value="">Proveedores</option>
           {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
         </select>
       </div>
