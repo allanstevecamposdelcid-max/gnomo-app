@@ -11,6 +11,7 @@ const items = [
   { href: "/inventario",   label: "Inventario", icon: Boxes },
 ];
 
+/* Barra inferior: solo en celular y tablet (< 1024px) */
 export default function BottomNav({ onMenuClick }: { onMenuClick?: () => void }) {
   const pathname = usePathname();
 
@@ -20,32 +21,38 @@ export default function BottomNav({ onMenuClick }: { onMenuClick?: () => void })
   }
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-20 md:hidden bg-[rgb(var(--card))] border-t border-[rgb(var(--border))]">
-      <div className="flex items-center justify-around px-2 py-1">
+    <nav className="lg:hidden fixed bottom-0 inset-x-0 z-30 border-t border-[rgb(var(--border))] bg-[rgb(var(--card)/0.95)] backdrop-blur-md pb-[env(safe-area-inset-bottom)]">
+      <div className="grid grid-cols-5 h-16 max-w-lg mx-auto">
         {items.map(({ href, label, icon: Icon, exact, center }) => {
           const active = isActive(href, exact);
-          return (
+          return center ? (
+            <div key={href} className="flex justify-center">
+              <Link
+                href={href}
+                className="-mt-4 flex flex-col items-center justify-center gap-0.5 w-16 h-16 rounded-2xl bg-[rgb(var(--text))] text-[rgb(var(--bg))] text-[11px] font-semibold shadow-lg active:scale-95 transition-transform"
+              >
+                <Icon size={22} />
+                <span>{label}</span>
+              </Link>
+            </div>
+          ) : (
             <Link
               key={href}
               href={href}
-              className={`flex flex-col items-center gap-0.5 px-3 py-2 rounded-xl transition-colors text-[11px] font-medium ${
-                center
-                  ? "bg-[rgb(var(--text))] text-[rgb(var(--bg))] rounded-2xl px-4 py-2.5 -mt-4 shadow-lg"
-                  : active
-                  ? "text-[rgb(var(--text))]"
-                  : "text-muted"
+              className={`flex flex-col items-center justify-center gap-0.5 text-[11px] font-medium transition-colors ${
+                active ? "text-[rgb(var(--text))]" : "text-muted"
               }`}
             >
-              <Icon size={center ? 22 : 20} />
+              <Icon size={20} strokeWidth={active ? 2.4 : 2} />
               <span>{label}</span>
             </Link>
           );
         })}
 
-        {/* Botón Menú */}
         <button
+          type="button"
           onClick={onMenuClick}
-          className="flex flex-col items-center gap-0.5 px-3 py-2 rounded-xl text-muted text-[11px] font-medium transition-colors"
+          className="flex flex-col items-center justify-center gap-0.5 text-[11px] font-medium text-muted"
         >
           <Menu size={20} />
           <span>Menú</span>

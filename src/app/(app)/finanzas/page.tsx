@@ -137,7 +137,7 @@ function GastosFijos({ month, year }: { month: number; year: number }) {
       {/* Formulario */}
       <div className="card p-4 space-y-3">
         <h2 className="text-sm font-medium flex items-center gap-2"><Plus size={14}/>Agregar gasto fijo</h2>
-        <p className="text-xs text-muted -mt-1">Se repite automáticamente cada mes desde {MONTHS[month-1]} {year}, sin volver a registrarlo.</p>
+        <p className="text-xs text-muted -mt-1">Se repite cada mes desde {MONTHS[month-1]} {year}.</p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <label className="text-xs text-muted block mb-1">Categoría</label>
@@ -260,7 +260,7 @@ function Perdidas({ month, year }: { month: number; year: number }) {
               <tr className="border-b border-[rgb(var(--border))] text-muted text-xs uppercase tracking-wider">
                 <th className="p-3 text-left">Fecha</th>
                 <th className="p-3 text-left">Pedido</th>
-                <th className="p-3 text-left">Cliente</th>
+                <th className="p-3 text-left hidden sm:table-cell">Cliente</th>
                 <th className="p-3 text-left">Motivo</th>
                 <th className="p-3 text-right">Pérdida</th>
               </tr>
@@ -270,7 +270,7 @@ function Perdidas({ month, year }: { month: number; year: number }) {
                 <tr key={l.id} className="border-t border-[rgb(var(--border))]">
                   <td className="p-3 text-muted">{new Date(l.loss_date + "T12:00:00").toLocaleDateString("es-GT")}</td>
                   <td className="p-3 font-mono text-xs">{l.sales?.order_number ?? "—"}</td>
-                  <td className="p-3">{l.sales?.customer_name ?? "—"}</td>
+                  <td className="p-3 hidden sm:table-cell">{l.sales?.customer_name ?? "—"}</td>
                   <td className="p-3 text-xs">
                     <span className={`badge ${l.reason === "devolucion" ? "badge-orange" : "badge-red"} text-[10px]`}>
                       {l.reason === "devolucion" ? "Devolución" : l.reason === "no_recibido" ? "No recibido" : "Otro"}
@@ -281,7 +281,8 @@ function Perdidas({ month, year }: { month: number; year: number }) {
                 </tr>
               ))}
               <tr className="border-t border-[rgb(var(--border))] font-semibold bg-[rgb(var(--card-soft))]">
-                <td colSpan={4} className="p-3">Total pérdidas</td>
+                <td colSpan={3} className="p-3 sm:hidden">Total pérdidas</td>
+                <td colSpan={4} className="p-3 hidden sm:table-cell">Total pérdidas</td>
                 <td className="p-3 text-right text-red-500">Q{details.reduce((s,l)=>s+Number(l.amount),0).toFixed(2)}</td>
               </tr>
             </tbody>

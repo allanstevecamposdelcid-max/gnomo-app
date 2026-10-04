@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   TrendingUp, AlertTriangle, Wallet, ShoppingBag,
   PackageX, Download, BarChart3, CalendarRange, ChevronDown,
@@ -10,6 +10,7 @@ import { supabase } from "@/lib/supabaseClient";
 import dynamic from "next/dynamic";
 import { Hidden, HiddenBlock, useProfitLock } from "@/components/ProfitLock";
 import TopProducts from "@/components/TopProducts";
+import Notice from "@/components/Notice";
 
 const VentasCharts = dynamic(() => import("@/components/VentasCharts"), { ssr: false });
 
@@ -79,6 +80,12 @@ export default function DashboardPage() {
   const [openDesglose, setOpenDesglose] = useState(false);
   const [openTable,    setOpenTable]    = useState(true);
   const [openStock,    setOpenStock]    = useState(true);
+  const stockRef = useRef<HTMLDivElement>(null);
+
+  function showLowStock() {
+    setOpenStock(true);
+    stockRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
   const [openTop,      setOpenTop]      = useState(true);
 
   /* ── estado caja del día ── */
@@ -419,15 +426,14 @@ export default function DashboardPage() {
         </div>
       </Collapsible>
 
-      {/* ALERTA BAJO INVENTARIO */}
+      {/* AVISO POCO INVENTARIO */}
       {lowStock.length > 0 && (
-        <div className="flex items-start gap-3 rounded-xl border border-orange-500/30 bg-orange-500/10 px-4 py-3 text-orange-500 text-sm">
-          <AlertTriangle size={16} className="shrink-0 mt-0.5" />
-          <div>
-            <p className="font-semibold">Bajo inventario ({lowStock.length} productos)</p>
-            <p className="text-xs mt-0.5 opacity-80">{lowStock.map(p => `${p.name} (${p.stock})`).join(" · ")}</p>
-          </div>
-        </div>
+        <Notice
+          icon={<AlertTriangle size={16} />}
+          title={`${lowStock.length} producto${lowStock.length !== 1 ? "s" : ""} con poco stock`}
+          detail="5 unidades o menos"
+          action={{ label: "Ver", onClick: showLowStock }}
+        />
       )}
 
       {/* MÉTRICAS DEL PERÍODO */}
@@ -493,10 +499,10 @@ export default function DashboardPage() {
                   <th className="p-3 text-left">Fecha</th>
                   <th className="p-3 text-center">Pedidos</th>
                   <th className="p-3 text-right">Ventas</th>
-                  <th className="p-3 text-right">Costo</th>
+                  <th className="p-3 text-right hidden sm:table-cell">Costo</th>
                   <th className="p-3 text-right">Ganancia</th>
-                  <th className="p-3 text-center">Pend.</th>
-                  <th className="p-3 text-center">Env.</th>
+                  <th className="p-3 text-center hidden sm:table-cell">Pend.</th>
+                  <th className="p-3 text-center hidden sm:table-cell">Env.</th>
                   <th className="p-3 text-center">No rec.</th>
                 </tr>
               </thead>
@@ -509,12 +515,12 @@ export default function DashboardPage() {
                     </td>
                     <td className="p-3 text-center font-mono">{row.pedidos}</td>
                     <td className="p-3 text-right font-medium">{row.ventas > 0 ? `Q${row.ventas.toFixed(2)}` : "—"}</td>
-                    <td className="p-3 text-right text-muted text-xs">{row.costo > 0 ? `Q${row.costo.toFixed(2)}` : "—"}</td>
+                    <td className="p-3 text-right text-muted text-xs hidden sm:table-cell">{row.costo > 0 ? `Q${row.costo.toFixed(2)}` : "—"}</td>
                     <td className={`p-3 text-right font-semibold ${row.ganancia < 0 ? "text-red-500" : row.ganancia === 0 ? "text-muted" : ""}`}>
                       {row.ventas > 0 ? <Hidden>Q{row.ganancia.toFixed(2)}</Hidden> : "—"}
                     </td>
-                    <td className="p-3 text-center">{row.pendientes > 0 ? <span className="badge badge-yellow">{row.pendientes}</span> : "—"}</td>
-                    <td className="p-3 text-center">{row.enviados   > 0 ? <span className="badge badge-blue">{row.enviados}</span>     : "—"}</td>
+                    <td className="p-3 text-center hidden sm:table-cell">{row.pendientes > 0 ? <span className="badge badge-yellow">{row.pendientes}</span> : "—"}</td>
+                    <td className="p-3 text-center hidden sm:table-cell">{row.enviados   > 0 ? <span className="badge badge-blue">{row.enviados}</span>     : "—"}</td>
                     <td className="p-3 text-center">{row.noRec      > 0 ? <span className="badge badge-red">{row.noRec}</span>         : "—"}</td>
                   </tr>
                 ))}
@@ -524,10 +530,10 @@ export default function DashboardPage() {
                   <td className="p-3">Total</td>
                   <td className="p-3 text-center font-mono">{sales.length}</td>
                   <td className="p-3 text-right">Q{ventasMes.toFixed(2)}</td>
-                  <td className="p-3 text-right text-muted text-xs">Q{(ventasMes - gananciaBruta).toFixed(2)}</td>
+                  <td className="p-3 text-right text-muted text-xs hidden sm:table-cell">Q{(ventasMes - gananciaBruta).toFixed(2)}</td>
                   <td className={`p-3 text-right ${gananciaBruta < 0 ? "text-red-500" : ""}`}><Hidden>Q{gananciaBruta.toFixed(2)}</Hidden></td>
-                  <td className="p-3 text-center">{dailyData.reduce((s, r) => s + r.pendientes, 0) || "—"}</td>
-                  <td className="p-3 text-center">{dailyData.reduce((s, r) => s + r.enviados, 0)   || "—"}</td>
+                  <td className="p-3 text-center hidden sm:table-cell">{dailyData.reduce((s, r) => s + r.pendientes, 0) || "—"}</td>
+                  <td className="p-3 text-center hidden sm:table-cell">{dailyData.reduce((s, r) => s + r.enviados, 0)   || "—"}</td>
                   <td className="p-3 text-center text-red-500">{noRecibidos.length || "—"}</td>
                 </tr>
               </tfoot>
@@ -545,13 +551,14 @@ export default function DashboardPage() {
 
       {/* BAJO STOCK */}
       {lowStock.length > 0 && (
-        <Collapsible label={`Inventario bajo — ${lowStock.length} producto${lowStock.length !== 1 ? "s" : ""}`} open={openStock} onToggle={() => setOpenStock(v => !v)}>
+        <div ref={stockRef} className="scroll-mt-20">
+        <Collapsible label={`Poco inventario · ${lowStock.length} producto${lowStock.length !== 1 ? "s" : ""}`} open={openStock} onToggle={() => setOpenStock(v => !v)}>
           <div className="card p-0 overflow-x-auto mt-3">
             <table className="min-w-full text-sm">
               <thead>
                 <tr className="border-b border-[rgb(var(--border))] text-muted text-xs uppercase tracking-wider">
                   <th className="p-3 text-left">Producto</th>
-                  <th className="p-3 text-left">SKU</th>
+                  <th className="p-3 text-left hidden sm:table-cell">SKU</th>
                   <th className="p-3 text-center">Stock</th>
                 </tr>
               </thead>
@@ -559,7 +566,7 @@ export default function DashboardPage() {
                 {lowStock.map(p => (
                   <tr key={p.id} className="border-t border-[rgb(var(--border))]">
                     <td className="p-3 font-medium">{p.name}</td>
-                    <td className="p-3 text-muted font-mono text-xs">{p.sku ?? "—"}</td>
+                    <td className="p-3 text-muted font-mono text-xs hidden sm:table-cell">{p.sku ?? "—"}</td>
                     <td className="p-3 text-center">
                       <span className={`font-bold ${p.stock === 0 ? "text-red-500" : "text-orange-500"}`}>{p.stock}</span>
                     </td>
@@ -569,6 +576,7 @@ export default function DashboardPage() {
             </table>
           </div>
         </Collapsible>
+        </div>
       )}
 
       {loading && <p className="text-sm text-muted py-4">Cargando datos…</p>}
@@ -668,7 +676,7 @@ export default function DashboardPage() {
               </button>
               <label className="w-full flex items-start gap-2 text-sm text-muted cursor-pointer">
                 <input type="checkbox" className="mt-0.5" checked={expFixed} onChange={e => setExpFixed(e.target.checked)} />
-                <span>Gasto fijo (se repite cada mes automáticamente, sin volver a registrarlo)</span>
+                <span>Gasto fijo (se repite cada mes)</span>
               </label>
             </div>
             {cajaLoading ? (
@@ -721,7 +729,7 @@ export default function DashboardPage() {
                   <thead>
                     <tr className="border-b border-[rgb(var(--border))] text-muted text-xs uppercase tracking-wider">
                       <th className="p-3 text-left">Descripción</th>
-                      <th className="p-3 text-left">Desde</th>
+                      <th className="p-3 text-left hidden sm:table-cell">Desde</th>
                       <th className="p-3 text-right">Monto</th>
                       <th className="p-3 text-center">Acciones</th>
                     </tr>
@@ -733,7 +741,7 @@ export default function DashboardPage() {
                           {f.description} <span className="badge badge-gray text-[10px] ml-1">Fijo</span>
                           {f.end_date && <p className="text-[11px] text-muted">Termina este mes</p>}
                         </td>
-                        <td className="p-3 text-muted text-xs whitespace-nowrap">
+                        <td className="p-3 text-muted text-xs whitespace-nowrap hidden sm:table-cell">
                           {new Date(f.start_date + "T12:00:00").toLocaleDateString("es-GT", { day: "numeric", month: "short", year: "numeric" })}
                         </td>
                         <td className="p-3 text-right font-medium text-red-500">Q{Number(f.amount).toFixed(2)}</td>
@@ -752,7 +760,8 @@ export default function DashboardPage() {
                   </tbody>
                   <tfoot>
                     <tr className="border-t border-[rgb(var(--border))] bg-[rgb(var(--card-soft))] font-semibold">
-                      <td className="p-3" colSpan={2}>Total fijos del mes</td>
+                      <td className="p-3 sm:hidden">Total fijos del mes</td>
+                      <td className="p-3 hidden sm:table-cell" colSpan={2}>Total fijos del mes</td>
                       <td className="p-3 text-right text-red-500">Q{cajaFixedTotal.toFixed(2)}</td>
                       <td></td>
                     </tr>
@@ -764,13 +773,12 @@ export default function DashboardPage() {
 
           {/* Alerta no recibidos */}
           {cajaNoRec.length > 0 && (
-            <div className="flex items-start gap-3 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-red-500 text-sm">
-              <PackageX size={16} className="shrink-0 mt-0.5" />
-              <div>
-                <p className="font-semibold">{cajaNoRec.length} pedido{cajaNoRec.length !== 1 ? "s" : ""} no recibido{cajaNoRec.length !== 1 ? "s" : ""}</p>
-                <p className="text-xs mt-0.5 opacity-80">Pérdidas del día (envíos y devoluciones): Q{cajaPerd.toFixed(2)}</p>
-              </div>
-            </div>
+            <Notice
+              tone="danger"
+              icon={<PackageX size={16} />}
+              title={`${cajaNoRec.length} pedido${cajaNoRec.length !== 1 ? "s" : ""} no recibido${cajaNoRec.length !== 1 ? "s" : ""}`}
+              detail={`Pérdida del día: Q${cajaPerd.toFixed(2)}`}
+            />
           )}
         </div>
       </Collapsible>
@@ -802,7 +810,7 @@ function Metric({ icon, label, value, sub, negative }: {
   return (
     <div className="card p-4 flex flex-col gap-1">
       <div className="flex items-center gap-2 text-muted text-xs">{icon}<span>{label}</span></div>
-      <div className={`text-2xl font-bold ${negative ? "text-red-500" : ""}`}>{value}</div>
+      <div className={`text-xl sm:text-2xl font-bold break-words ${negative ? "text-red-500" : ""}`}>{value}</div>
       {sub && <p className="text-xs text-muted">{sub}</p>}
     </div>
   );

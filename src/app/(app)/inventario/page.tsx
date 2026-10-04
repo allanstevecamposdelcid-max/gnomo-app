@@ -116,17 +116,17 @@ export default function InventarioPage() {
       </div>
 
       {/* FILTROS */}
-      <div className="flex gap-2 flex-wrap">
-        <div className="relative flex-1 min-w-48">
+      <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
+        <div className="relative col-span-2 sm:flex-1 sm:min-w-48">
           <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted pointer-events-none" />
           <input value={q} onChange={(e) => setQ(e.target.value)}
             placeholder="Buscar por nombre o SKU…" className="input pl-9 w-full" />
         </div>
-        <select className="input w-auto" value={filterCat} onChange={(e) => setFilterCat(e.target.value)}>
+        <select className="input w-full sm:w-auto min-w-0" value={filterCat} onChange={(e) => setFilterCat(e.target.value)}>
           <option value="">Todas las categorías</option>
           {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
-        <select className="input w-auto" value={filterSup} onChange={(e) => setFilterSup(e.target.value)}>
+        <select className="input w-full sm:w-auto min-w-0" value={filterSup} onChange={(e) => setFilterSup(e.target.value)}>
           <option value="">Todos los proveedores</option>
           {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
         </select>

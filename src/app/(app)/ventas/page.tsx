@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 import { Hidden } from "@/components/ProfitLock";
+import Notice from "@/components/Notice";
 import { RETURN_LOSS } from "@/lib/constants";
 
 type Vendor = { id: string; name: string };
@@ -102,6 +103,7 @@ export default function VentasPage() {
   const [filterFrom,     setFilterFrom]     = useState("");
   const [filterTo,       setFilterTo]       = useState("");
   const [showFilters,    setShowFilters]     = useState(false);
+  const [onlyOverdue,    setOnlyOverdue]     = useState(false);
 
   const today = new Date().toISOString().slice(0, 10);
   const monthStart = today.slice(0, 7) + "-01";
@@ -160,6 +162,7 @@ export default function VentasPage() {
       if (filterPayment && s.payment_type !== filterPayment) return false;
       if (filterFrom    && d < filterFrom)                   return false;
       if (filterTo      && d > filterTo)                     return false;
+      if (onlyOverdue && !isOverdue(s))                     return false;
       if (filterVendor) {
         const hasVendorProduct = s.sale_items.some(
           i => i.product_id && productVendorMap[i.product_id] === filterVendor
@@ -176,7 +179,7 @@ export default function VentasPage() {
       }
       return true;
     });
-  }, [sales, search, filterStatus, filterPayment, filterFrom, filterTo, filterVendor, productVendorMap]);
+  }, [sales, search, filterStatus, filterPayment, filterFrom, filterTo, filterVendor, productVendorMap, onlyOverdue]);
 
   /* =====================
      CHANGE STATUS
@@ -237,6 +240,10 @@ export default function VentasPage() {
 
   const overdueCount = sales.filter(isOverdue).length;
 
+  function toggleRow(id: string) {
+    setOpenRows((prev) => prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id]);
+  }
+
   return (
     <div className="space-y-5">
       {/* HEADER */}
@@ -275,13 +282,13 @@ export default function VentasPage() {
 
       {/* ALERTA VENCIDOS */}
       {overdueCount > 0 && (
-        <div className="flex items-center gap-3 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-red-500 text-sm">
-          <AlertTriangle size={16} className="shrink-0" />
-          <span>
-            <strong>{overdueCount}</strong> pedido{overdueCount !== 1 ? "s" : ""} en estado
-            &ldquo;Enviado&rdquo; llevan más de 15 días sin actualizarse.
-          </span>
-        </div>
+        <Notice
+          tone="danger"
+          icon={<AlertTriangle size={16} />}
+          title={`${overdueCount} pedido${overdueCount !== 1 ? "s" : ""} sin actualizar`}
+          detail="Enviados hace más de 15 días"
+          action={{ label: onlyOverdue ? "Ver todos" : "Ver", onClick: () => setOnlyOverdue(v => !v) }}
+        />
       )}
 
       {/* FILTROS */}
@@ -360,8 +367,28 @@ export default function VentasPage() {
         </div>
       )}
 
-      {/* TABLA */}
-      <div className="card p-0 overflow-x-auto">
+      {/* CELULAR / TABLET: una tarjeta por venta */}
+      <div className="lg:hidden space-y-3">
+        {loading ? (
+          <p className="text-sm text-muted py-2">Cargando…</p>
+        ) : filtered.length === 0 ? (
+          <div className="card p-8 text-center text-sm text-muted">No hay ventas con los filtros actuales</div>
+        ) : (
+          filtered.map((s) => (
+            <SaleCard
+              key={s.id}
+              s={s}
+              open={openRows.includes(s.id)}
+              onToggle={() => toggleRow(s.id)}
+              onStatus={(st) => changeStatus(s, st)}
+              onDelete={() => deleteSale(s)}
+            />
+          ))
+        )}
+      </div>
+
+      {/* LAPTOP / PC: tabla */}
+      <div className="card p-0 overflow-x-auto hidden lg:block">
         {loading ? (
           <p className="p-6 text-sm text-muted">Cargando…</p>
         ) : (
@@ -384,96 +411,41 @@ export default function VentasPage() {
             <tbody>
               {filtered.map((s) => {
                 const open    = openRows.includes(s.id);
-                const profit  = getProfit(s);
                 const overdue = isOverdue(s);
 
                 return (
                   <Fragment key={s.id}>
                     <tr className={`border-t border-[rgb(var(--border))] ${overdue ? "bg-red-500/5" : ""}`}>
-
-                      {/* EXPAND */}
                       <td className="p-3">
-                        <button
-                          onClick={() =>
-                            setOpenRows((prev) =>
-                              prev.includes(s.id)
-                                ? prev.filter((i) => i !== s.id)
-                                : [...prev, s.id]
-                            )
-                          }
-                        >
+                        <button onClick={() => toggleRow(s.id)} aria-label={open ? "Ocultar detalle" : "Ver detalle"}>
                           {open ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
                         </button>
                       </td>
-
-                      {/* ORDER NUMBER */}
                       <td className="p-3 font-mono font-medium text-xs">
                         <div className="flex items-center gap-1">
                           {overdue && <AlertTriangle size={13} className="text-red-500 shrink-0" />}
                           {s.order_number}
                         </div>
                       </td>
-
-                      {/* FECHA */}
-                      <td className="p-3 text-muted">
+                      <td className="p-3 text-muted whitespace-nowrap">
                         {new Date(s.created_at).toLocaleDateString("es-GT")}
                       </td>
-
-                      {/* CLIENTE */}
                       <td className="p-3">
                         <div className="font-medium">{s.customer_name}</div>
                         {s.customer_phone && (
                           <div className="text-xs text-muted">{s.customer_phone}</div>
                         )}
                       </td>
-
-                      {/* GUÍA */}
                       <td className="p-3 font-mono text-xs text-muted">{s.tracking_number}</td>
-
-                      {/* TIPO PAGO */}
-                      <td className="p-3 text-center">
-                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                          s.payment_type === "contra_entrega"
-                            ? "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400"
-                            : "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
-                        }`}>
-                          {s.payment_type === "contra_entrega" ? "C/E" : "Pagado"}
-                        </span>
-                      </td>
-
-                      {/* TOTAL */}
-                      <td className={`p-3 text-right font-medium ${s.status === "devuelto" ? "line-through text-muted" : ""}`}>
+                      <td className="p-3 text-center"><PaymentBadge type={s.payment_type} /></td>
+                      <td className={`p-3 text-right font-medium whitespace-nowrap ${s.status === "devuelto" ? "line-through text-muted" : ""}`}>
                         Q{s.total.toFixed(2)}
                       </td>
-
-                      {/* GANANCIA — una devolución no es venta: solo muestra la pérdida de 2 envíos */}
-                      <td className={`p-3 text-right font-medium ${
-                        s.status === "devuelto"
-                          ? "text-red-500"
-                          : s.status === "no_recibido"
-                          ? "text-red-500 line-through opacity-60"
-                          : profit < 0 ? "text-red-500" : ""
-                      }`}>
-                        {s.status === "devuelto"
-                          ? <span title="Devolución: no cuenta como venta, solo se pierden 2 envíos">−Q{RETURN_LOSS.toFixed(2)}</span>
-                          : <Hidden>Q{profit.toFixed(2)}</Hidden>}
-                      </td>
-
-                      {/* ESTADO */}
+                      {/* Una devolución no es venta: solo muestra la pérdida de 2 envíos */}
+                      <td className="p-3 text-right font-medium whitespace-nowrap"><ProfitValue s={s} /></td>
                       <td className="p-3 text-center">
-                        <select
-                          value={s.status}
-                          onChange={(e) => changeStatus(s, e.target.value as Status)}
-                          disabled={isClosed(s)}
-                          className={`text-xs font-medium rounded-full px-2 py-1 border-0 cursor-pointer disabled:cursor-default ${STATUS_COLORS[s.status]}`}
-                        >
-                          {STATUS_FLOW.map((st) => (
-                            <option key={st} value={st}>{STATUS_LABELS[st]}</option>
-                          ))}
-                        </select>
+                        <StatusSelect s={s} onChange={(st) => changeStatus(s, st)} />
                       </td>
-
-                      {/* ACCIONES */}
                       <td className="p-3 text-center whitespace-nowrap">
                         {!isClosed(s) && (
                           <button
@@ -494,47 +466,10 @@ export default function VentasPage() {
                       </td>
                     </tr>
 
-                    {/* DETALLE */}
                     {open && (
                       <tr className="border-t border-[rgb(var(--border))] bg-[rgb(var(--card-soft))]">
                         <td colSpan={10} className="px-6 py-4">
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-                            <div>
-                              <p className="font-semibold mb-2">Productos</p>
-                              <ul className="space-y-1 text-muted">
-                                {s.sale_items.map((i) => (
-                                  <li key={i.id}>
-                                    {i.qty} × <span className="text-[rgb(var(--text))] font-medium">{i.product_name}</span>
-                                    {" "}— Q{(i.qty * i.unit_price).toFixed(2)}
-                                  </li>
-                                ))}
-                              </ul>
-                            </div>
-                            <div className="space-y-1 text-muted">
-                              {s.concept && (
-                                <p><span className="font-medium text-[rgb(var(--text))]">Concepto:</span> {s.concept}</p>
-                              )}
-                              {s.shipping_cost > 0 && (
-                                <p><span className="font-medium text-[rgb(var(--text))]">Envío:</span> Q{s.shipping_cost.toFixed(2)}</p>
-                              )}
-                              {s.shipping_discount > 0 && (
-                                <p><span className="font-medium text-[rgb(var(--text))]">Envío gratis (oferta):</span> −Q{Number(s.shipping_discount).toFixed(2)}</p>
-                              )}
-                              {s.status === "devuelto" && (
-                                <div className="text-purple-500">
-                                  <p className="font-medium">Devolución — no cuenta como venta. Pérdida: Q{RETURN_LOSS} (2 envíos)</p>
-                                  {s.return_reason && (
-                                    <p><span className="font-medium">Razón:</span> {s.return_reason}</p>
-                                  )}
-                                </div>
-                              )}
-                              {overdue && (
-                                <p className="text-red-500 font-medium">
-                                  ⚠ Enviado hace más de 15 días sin actualizar
-                                </p>
-                              )}
-                            </div>
-                          </div>
+                          <SaleDetail s={s} />
                         </td>
                       </tr>
                     )}
@@ -561,6 +496,158 @@ export default function VentasPage() {
           onConfirm={(reason) => registerReturn(returning, reason)}
         />
       )}
+    </div>
+  );
+}
+
+/* =====================
+   PIEZAS COMPARTIDAS (tabla y tarjetas)
+===================== */
+
+function PaymentBadge({ type }: { type: PaymentType }) {
+  return (
+    <span className={`px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${
+      type === "contra_entrega"
+        ? "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400"
+        : "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
+    }`}>
+      {type === "contra_entrega" ? "C/E" : "Pagado"}
+    </span>
+  );
+}
+
+function StatusSelect({ s, onChange }: { s: Sale; onChange: (st: Status) => void }) {
+  return (
+    <select
+      value={s.status}
+      onChange={(e) => onChange(e.target.value as Status)}
+      disabled={isClosed(s)}
+      className={`w-auto text-xs font-medium rounded-full pl-2.5 pr-7 py-1 border-0 cursor-pointer disabled:cursor-default ${STATUS_COLORS[s.status]}`}
+    >
+      {STATUS_FLOW.map((st) => (
+        <option key={st} value={st}>{STATUS_LABELS[st]}</option>
+      ))}
+    </select>
+  );
+}
+
+/* Ganancia de la venta; en una devolución, la pérdida de 2 envíos */
+function ProfitValue({ s }: { s: Sale }) {
+  if (s.status === "devuelto") {
+    return (
+      <span className="text-red-500" title="Devolución: no cuenta como venta, solo se pierden 2 envíos">
+        −Q{RETURN_LOSS.toFixed(2)}
+      </span>
+    );
+  }
+  const profit = getProfit(s);
+  return (
+    <span className={s.status === "no_recibido" ? "text-red-500 line-through opacity-60" : profit < 0 ? "text-red-500" : ""}>
+      <Hidden>Q{profit.toFixed(2)}</Hidden>
+    </span>
+  );
+}
+
+function SaleDetail({ s }: { s: Sale }) {
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+      <div>
+        <p className="font-semibold mb-2">Productos</p>
+        <ul className="space-y-1 text-muted">
+          {s.sale_items.map((i) => (
+            <li key={i.id}>
+              {i.qty} × <span className="text-[rgb(var(--text))] font-medium">{i.product_name}</span>
+              {" "}— Q{(i.qty * i.unit_price).toFixed(2)}
+            </li>
+          ))}
+        </ul>
+      </div>
+      <div className="space-y-1 text-muted">
+        {s.concept && (
+          <p><span className="font-medium text-[rgb(var(--text))]">Concepto:</span> {s.concept}</p>
+        )}
+        {s.shipping_cost > 0 && (
+          <p><span className="font-medium text-[rgb(var(--text))]">Envío:</span> Q{s.shipping_cost.toFixed(2)}</p>
+        )}
+        {s.shipping_discount > 0 && (
+          <p><span className="font-medium text-[rgb(var(--text))]">Envío gratis (oferta):</span> −Q{Number(s.shipping_discount).toFixed(2)}</p>
+        )}
+        {s.status === "devuelto" && (
+          <div className="text-purple-500">
+            <p className="font-medium">Devolución — no cuenta como venta. Pérdida: Q{RETURN_LOSS} (2 envíos)</p>
+            {s.return_reason && (
+              <p><span className="font-medium">Razón:</span> {s.return_reason}</p>
+            )}
+          </div>
+        )}
+        {isOverdue(s) && (
+          <p className="text-red-500 font-medium">
+            ⚠ Enviado hace más de 15 días sin actualizar
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* Botón chico de las tarjetas (sin .btn para que respete color y tamaño) */
+const cardBtn = "inline-flex items-center gap-1.5 rounded-lg px-2.5 py-2 text-xs font-medium transition-colors hover:bg-[rgb(var(--card-soft))]";
+
+function SaleCard({ s, open, onToggle, onStatus, onDelete }: {
+  s: Sale;
+  open: boolean;
+  onToggle: () => void;
+  onStatus: (st: Status) => void;
+  onDelete: () => void;
+}) {
+  const overdue = isOverdue(s);
+  return (
+    <div className={`card p-4 ${overdue ? "ring-1 ring-red-500/40" : ""}`}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-xs text-muted flex items-center gap-1">
+            {overdue && <AlertTriangle size={12} className="text-red-500 shrink-0" />}
+            <span className="font-mono">{s.order_number}</span>
+            <span>· {new Date(s.created_at).toLocaleDateString("es-GT")}</span>
+          </p>
+          <p className="font-semibold truncate mt-0.5">{s.customer_name}</p>
+          <p className="text-xs text-muted truncate">
+            {[s.customer_phone, `Guía ${s.tracking_number}`].filter(Boolean).join(" · ")}
+          </p>
+        </div>
+        <div className="text-right shrink-0">
+          <p className={`font-bold ${s.status === "devuelto" ? "line-through text-muted" : ""}`}>
+            Q{s.total.toFixed(2)}
+          </p>
+          <p className="text-xs text-muted">Ganancia <span className="font-medium"><ProfitValue s={s} /></span></p>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-2 mt-3">
+        <PaymentBadge type={s.payment_type} />
+        <StatusSelect s={s} onChange={onStatus} />
+      </div>
+
+      {open && (
+        <div className="mt-3 pt-3 border-t border-[rgb(var(--border))]">
+          <SaleDetail s={s} />
+        </div>
+      )}
+
+      <div className="flex items-center gap-1 mt-3 pt-2 border-t border-[rgb(var(--border))]">
+        <button onClick={onToggle} className={`${cardBtn} text-muted mr-auto`}>
+          {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+          {open ? "Ocultar detalle" : "Ver detalle"}
+        </button>
+        {!isClosed(s) && (
+          <button onClick={() => onStatus("devuelto")} className={`${cardBtn} text-purple-500`}>
+            <Undo2 size={14} /> Devolución
+          </button>
+        )}
+        <button onClick={onDelete} className={`${cardBtn} text-red-500`} aria-label="Eliminar venta">
+          <Trash2 size={14} />
+        </button>
+      </div>
     </div>
   );
 }

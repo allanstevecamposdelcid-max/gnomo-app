@@ -159,7 +159,7 @@ export default function NuevaVentaPage() {
     <div className="max-w-xl mx-auto space-y-6 pb-24">
       <h1 className="text-2xl font-semibold">Nueva venta</h1>
 
-      <div className="card p-6 space-y-6">
+      <div className="card p-4 sm:p-6 space-y-6">
 
         {/* CLIENTE */}
         <section className="space-y-3">
@@ -233,8 +233,8 @@ export default function NuevaVentaPage() {
 
           {cart.length > 0 && (
             <div className="space-y-2 pt-1">
-              {/* CABECERA columnas */}
-              <div className="grid grid-cols-[1fr_72px_100px_72px_28px] gap-2 px-3 text-[10px] font-semibold text-muted uppercase tracking-wider">
+              {/* CABECERA columnas (en celular cada campo lleva su etiqueta) */}
+              <div className="hidden sm:grid grid-cols-[1fr_72px_100px_80px_28px] gap-2 px-3 text-[10px] font-semibold text-muted uppercase tracking-wider">
                 <span>Producto</span>
                 <span className="text-center">Cant.</span>
                 <span className="text-center">Precio c/u</span>
@@ -244,36 +244,51 @@ export default function NuevaVentaPage() {
 
               {cart.map((i) => (
                 <div key={i.product.id}
-                  className="grid grid-cols-[1fr_72px_100px_72px_28px] gap-2 items-center border border-[rgb(var(--border))] rounded-xl p-3">
+                  className="border border-[rgb(var(--border))] rounded-xl p-3 space-y-2.5 sm:space-y-0 sm:grid sm:grid-cols-[1fr_72px_100px_80px_28px] sm:gap-2 sm:items-center">
 
-                  {/* Nombre */}
-                  <div className="min-w-0">
-                    <div className="font-medium truncate text-sm">{i.product.name}</div>
-                    <div className="text-xs text-muted">Precio base: Q{i.product.price}</div>
+                  {/* Nombre (en celular, con el botón de quitar al lado) */}
+                  <div className="flex items-start justify-between gap-2 min-w-0">
+                    <div className="min-w-0">
+                      <div className="font-medium truncate text-sm">{i.product.name}</div>
+                      <div className="text-xs text-muted">Precio base: Q{i.product.price}</div>
+                    </div>
+                    <button onClick={() => removeItem(i.product.id)} aria-label="Quitar producto"
+                      className="sm:hidden text-red-500 hover:text-red-700 p-1 -mr-1">
+                      <Trash2 size={16} />
+                    </button>
                   </div>
 
-                  {/* Cantidad */}
-                  <input type="number" min={1} className="input text-center text-sm px-1"
-                    value={i.qty}
-                    onChange={(e) => updateQty(i.product.id, Number(e.target.value))} />
+                  {/* Cantidad · precio · subtotal (en celular, una fila de 3) */}
+                  <div className="grid grid-cols-3 gap-2 items-end sm:contents">
+                    <label className="block">
+                      <span className="sm:hidden block text-[10px] font-semibold text-muted uppercase tracking-wider mb-1">Cant.</span>
+                      <input type="number" min={1} inputMode="numeric" className="input text-center text-sm px-1"
+                        value={i.qty}
+                        onChange={(e) => updateQty(i.product.id, Number(e.target.value))} />
+                    </label>
 
-                  {/* Precio editable */}
-                  <div className="relative">
-                    <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted text-xs">Q</span>
-                    <input type="number" min={0} step="0.01"
-                      className="input text-right text-sm pl-6 w-full"
-                      value={i.unit_price}
-                      onChange={(e) => updatePrice(i.product.id, Number(e.target.value))} />
+                    <label className="block">
+                      <span className="sm:hidden block text-[10px] font-semibold text-muted uppercase tracking-wider mb-1">Precio c/u</span>
+                      <div className="relative">
+                        <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted text-xs">Q</span>
+                        <input type="number" min={0} step="0.01" inputMode="decimal"
+                          className="input text-right text-sm pl-6 w-full"
+                          value={i.unit_price}
+                          onChange={(e) => updatePrice(i.product.id, Number(e.target.value))} />
+                      </div>
+                    </label>
+
+                    <div className="text-right">
+                      <span className="sm:hidden block text-[10px] font-semibold text-muted uppercase tracking-wider mb-1">Subtotal</span>
+                      <span className="block text-sm font-semibold py-2.5 sm:py-0">
+                        Q{(i.qty * i.unit_price).toFixed(2)}
+                      </span>
+                    </div>
                   </div>
 
-                  {/* Subtotal */}
-                  <span className="text-sm font-semibold text-right">
-                    Q{(i.qty * i.unit_price).toFixed(2)}
-                  </span>
-
-                  {/* Eliminar */}
-                  <button onClick={() => removeItem(i.product.id)}
-                    className="text-red-500 hover:text-red-700 p-1">
+                  {/* Quitar (pantallas medianas en adelante) */}
+                  <button onClick={() => removeItem(i.product.id)} aria-label="Quitar producto"
+                    className="hidden sm:block text-red-500 hover:text-red-700 p-1">
                     <Trash2 size={14} />
                   </button>
                 </div>
@@ -297,12 +312,12 @@ export default function NuevaVentaPage() {
               <input type="checkbox" className="mt-0.5" checked={applyFreeShipping}
                 onChange={(e) => setApplyFreeShipping(e.target.checked)} />
               <span>
-                <span className="font-medium flex items-center gap-1.5"><Gift size={14} /> Envío gratis (compra mayor a Q{FREE_SHIPPING_MIN})</span>
-                <span className="text-xs text-muted">Se descuentan Q{SHIPPING_COST} de la ganancia de este pedido.</span>
+                <span className="font-medium flex items-center gap-1.5"><Gift size={14} /> Envío gratis</span>
+                <span className="text-xs text-muted">Compra mayor a Q{FREE_SHIPPING_MIN} · −Q{SHIPPING_COST} de ganancia</span>
               </span>
             </label>
           ) : (
-            <p className="text-xs text-muted">Compras mayores a Q{FREE_SHIPPING_MIN} llevan envío gratis (−Q{SHIPPING_COST} de la ganancia).</p>
+            <p className="text-xs text-muted">Envío gratis en compras mayores a Q{FREE_SHIPPING_MIN}.</p>
           )}
         </section>
 
