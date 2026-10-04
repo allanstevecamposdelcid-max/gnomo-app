@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import { LOW_STOCK_MAX } from "@/lib/constants";
 import { Plus, Search, Pencil, Trash2, Phone, Store, X, Save, StickyNote, Boxes } from "lucide-react";
 
 type Vendor = {
@@ -204,7 +205,7 @@ export default function VendedoresPage() {
                     <div key={p.id} className="flex items-center justify-between px-3 py-2 rounded-lg bg-[rgb(var(--card-soft))]">
                       <span className="text-sm font-medium">{p.name}</span>
                       <div className="flex items-center gap-3 text-xs text-muted">
-                        <span className={`badge ${stock <= 0 ? "badge-red" : stock <= 5 ? "badge-orange" : "badge-green"}`}>
+                        <span className={`badge ${stock <= 0 ? "badge-red" : stock <= LOW_STOCK_MAX ? "badge-orange" : "badge-green"}`}>
                           {stock} uds
                         </span>
                         <span>Q{p.price.toFixed(2)}</span>

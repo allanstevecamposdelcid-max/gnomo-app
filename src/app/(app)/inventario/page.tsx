@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Search, Plus, Pencil, Trash2, PackageCheck, PackageX, Tag, X, Save, Store, Shirt, Layers } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 import { Hidden } from "@/components/ProfitLock";
+import { LOW_STOCK_MAX } from "@/lib/constants";
 
 type Category = { id: string; name: string };
 type Supplier = { id: string; name: string };
@@ -162,7 +163,7 @@ export default function InventarioPage() {
                     </div>
                   </td>
                   <td className="p-3 text-center">
-                    <span className={`badge ${stockOf(p) <= 0 ? "badge-red" : stockOf(p) <= 5 ? "badge-orange" : "badge-green"}`}>
+                    <span className={`badge ${stockOf(p) <= 0 ? "badge-red" : stockOf(p) <= LOW_STOCK_MAX ? "badge-orange" : "badge-green"}`}>
                       {stockOf(p) <= 0 ? "Sin stock" : stockOf(p)}
                     </span>
                     {p.base && <p className="text-[10px] text-muted mt-1">compartido</p>}
@@ -216,7 +217,7 @@ export default function InventarioPage() {
                 </div>
                 <BaseInfo p={p} designs={designCount[p.id] ?? 0} />
               </div>
-              <span className={`badge shrink-0 ${stockOf(p) <= 0 ? "badge-red" : stockOf(p) <= 5 ? "badge-orange" : "badge-green"}`}>
+              <span className={`badge shrink-0 ${stockOf(p) <= 0 ? "badge-red" : stockOf(p) <= LOW_STOCK_MAX ? "badge-orange" : "badge-green"}`}>
                 {stockOf(p) <= 0
                   ? <><PackageX size={10} className="mr-1" />Sin stock</>
                   : <><PackageCheck size={10} className="mr-1" />{stockOf(p)}</>}

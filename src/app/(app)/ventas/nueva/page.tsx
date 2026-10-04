@@ -5,9 +5,11 @@ import { supabase } from "@/lib/supabaseClient";
 import {
   User, Phone, Package, Save, Truck,
   FileText, CreditCard, Trash2, Gift,
+  ShoppingCart, Undo2, Search,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { FREE_SHIPPING_MIN, SHIPPING_COST } from "@/lib/constants";
+import { FREE_SHIPPING_MIN, SHIPPING_COST, RETURN_LOSS } from "@/lib/constants";
+import { ReturnReasonFields, returnReasonText, returnReasonValid } from "@/components/ReturnReason";
 
 type Product = {
   id: string; name: string; sku: string | null;
@@ -35,9 +37,14 @@ function maxQty(cart: CartItem[], p: Product) {
   return stockOf(p) - usedByOthers;
 }
 
+const sectionTitle = "text-sm font-semibold text-muted uppercase tracking-wider";
+
 export default function NuevaVentaPage() {
   const router = useRouter();
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Venta normal o devolución de un pedido (la devolución no registra venta)
+  const [mode, setMode] = useState<"venta" | "devolucion">("venta");
 
   const [products, setProducts] = useState<Product[]>([]);
   const [search, setSearch] = useState("");
@@ -155,15 +162,32 @@ export default function NuevaVentaPage() {
     router.push("/ventas");
   }
 
+  const modeBtn = (active: boolean) =>
+    `flex items-center justify-center gap-2 rounded-lg py-2 text-sm font-medium transition-colors ${
+      active ? "bg-[rgb(var(--card))] text-[rgb(var(--text))] shadow-sm" : "text-muted hover:text-[rgb(var(--text))]"
+    }`;
+
   return (
     <div className="max-w-xl mx-auto space-y-6 pb-24">
-      <h1 className="text-2xl font-semibold">Nueva venta</h1>
+      <h1 className="text-2xl font-semibold">{mode === "venta" ? "Nueva venta" : "Devolución"}</h1>
 
       <div className="card p-4 sm:p-6 space-y-6">
 
+        {/* TIPO */}
+        <div className="grid grid-cols-2 gap-1 p-1 rounded-xl bg-[rgb(var(--card-soft))]">
+          <button type="button" onClick={() => setMode("venta")} className={modeBtn(mode === "venta")}>
+            <ShoppingCart size={15} /> Venta
+          </button>
+          <button type="button" onClick={() => setMode("devolucion")} className={modeBtn(mode === "devolucion")}>
+            <Undo2 size={15} /> Devolución
+          </button>
+        </div>
+
+        {mode === "devolucion" ? <ReturnForm /> : (<>
+
         {/* CLIENTE */}
         <section className="space-y-3">
-          <h2 className="text-sm font-semibold text-muted uppercase tracking-wider">Cliente</h2>
+          <h2 className={sectionTitle}>Cliente</h2>
           <div className="flex gap-2 items-center">
             <User size={16} className="shrink-0 text-muted" />
             <input className="input w-full" value={customerName}
@@ -172,7 +196,7 @@ export default function NuevaVentaPage() {
           </div>
           <div className="flex gap-2 items-center">
             <Phone size={16} className="shrink-0 text-muted" />
-            <input className="input w-full" value={customerPhone}
+            <input className="input w-full" value={customerPhone} inputMode="tel"
               onChange={(e) => setCustomerPhone(e.target.value)}
               placeholder="Teléfono (opcional)" />
           </div>
@@ -180,7 +204,7 @@ export default function NuevaVentaPage() {
 
         {/* PEDIDO */}
         <section className="space-y-3">
-          <h2 className="text-sm font-semibold text-muted uppercase tracking-wider">Pedido</h2>
+          <h2 className={sectionTitle}>Pedido</h2>
           <div className="flex gap-2 items-center">
             <Truck size={16} className="shrink-0 text-muted" />
             <input className="input w-full" value={trackingNumber}
@@ -205,7 +229,7 @@ export default function NuevaVentaPage() {
 
         {/* PRODUCTOS */}
         <section className="space-y-3" ref={dropdownRef}>
-          <h2 className="text-sm font-semibold text-muted uppercase tracking-wider">Productos</h2>
+          <h2 className={sectionTitle}>Productos</h2>
 
           <div className="flex gap-2 items-center">
             <Package size={16} className="shrink-0 text-muted" />
@@ -299,10 +323,10 @@ export default function NuevaVentaPage() {
 
         {/* ENVÍO */}
         <section className="space-y-2">
-          <h2 className="text-sm font-semibold text-muted uppercase tracking-wider">Envío</h2>
+          <h2 className={sectionTitle}>Envío</h2>
           <div>
             <label className="text-xs text-muted">Costo de envío (Q) — opcional</label>
-            <input type="number" min={0} step="0.01" className="input w-full mt-1"
+            <input type="number" min={0} step="0.01" inputMode="decimal" className="input w-full mt-1"
               placeholder="Ej: 28, 35, 50…"
               value={shippingCost}
               onChange={(e) => setShippingCost(e.target.value === "" ? "" : Number(e.target.value))} />
@@ -340,7 +364,142 @@ export default function NuevaVentaPage() {
           <Save size={16} />
           {loading ? "Guardando…" : "Guardar venta"}
         </button>
+        </>)}
       </div>
     </div>
+  );
+}
+
+/* =====================
+   DEVOLUCIÓN
+   Busca el pedido original y lo marca como devolución: no cuenta como venta,
+   el producto vuelve al inventario y solo se pierden 2 envíos.
+===================== */
+
+type SaleOption = {
+  id: string;
+  order_number: string;
+  customer_name: string;
+  tracking_number: string;
+  total: number;
+  created_at: string;
+  sale_items: { product_name: string; qty: number }[];
+};
+
+function ReturnForm() {
+  const router = useRouter();
+  const [q,        setQ]        = useState("");
+  const [options,  setOptions]  = useState<SaleOption[]>([]);
+  const [selected, setSelected] = useState<SaleOption | null>(null);
+  const [reason,   setReason]   = useState("");
+  const [detail,   setDetail]   = useState("");
+  const [saving,   setSaving]   = useState(false);
+
+  // Pedidos que todavía se pueden devolver (no cerrados), los más recientes primero
+  useEffect(() => {
+    const t = setTimeout(async () => {
+      let query = supabase.from("sales")
+        .select("id, order_number, customer_name, tracking_number, total, created_at, sale_items(product_name, qty)")
+        .not("status", "in", "(no_recibido,devuelto)")
+        .order("created_at", { ascending: false })
+        .limit(8);
+      const term = q.replace(/[,()]/g, " ").trim();
+      if (term) query = query.or(`order_number.ilike.%${term}%,customer_name.ilike.%${term}%,tracking_number.ilike.%${term}%`);
+      const { data } = await query;
+      setOptions((data as unknown as SaleOption[]) ?? []);
+    }, 300);
+    return () => clearTimeout(t);
+  }, [q]);
+
+  const valid = selected !== null && returnReasonValid(reason, detail);
+
+  async function save() {
+    if (!selected || !valid) return;
+    setSaving(true);
+    const { error } = await supabase.rpc("update_sale_status", {
+      p_sale_id:    selected.id,
+      p_new_status: "devuelto",
+      p_reason:     returnReasonText(reason, detail),
+    });
+    setSaving(false);
+    if (error) { alert(error.message); return; }
+    router.push("/ventas");
+  }
+
+  return (
+    <>
+      {/* PEDIDO */}
+      <section className="space-y-3">
+        <h2 className={sectionTitle}>Pedido devuelto</h2>
+
+        {selected ? (
+          <div className="rounded-xl border border-[rgb(var(--border))] p-3 flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-xs text-muted">
+                <span className="font-mono">{selected.order_number}</span>
+                {" · "}{new Date(selected.created_at).toLocaleDateString("es-GT")}
+              </p>
+              <p className="font-medium truncate">{selected.customer_name}</p>
+              <p className="text-xs text-muted truncate">
+                {selected.sale_items.map((i) => `${i.qty} × ${i.product_name}`).join(", ")}
+              </p>
+            </div>
+            <div className="text-right shrink-0">
+              <p className="font-semibold">Q{Number(selected.total).toFixed(2)}</p>
+              <button type="button" onClick={() => setSelected(null)} className="text-xs text-muted underline">
+                Cambiar
+              </button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="relative">
+              <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted pointer-events-none" />
+              <input className="input w-full pl-9" value={q} onChange={(e) => setQ(e.target.value)}
+                placeholder="Buscar por pedido, cliente o guía" />
+            </div>
+            <div className="rounded-xl border border-[rgb(var(--border))] max-h-64 overflow-auto">
+              {options.length === 0 ? (
+                <p className="px-4 py-3 text-sm text-muted">No hay pedidos para devolver</p>
+              ) : options.map((o) => (
+                <button key={o.id} type="button" onClick={() => setSelected(o)}
+                  className="w-full text-left px-4 py-3 border-b last:border-b-0 border-[rgb(var(--border))] hover:bg-[rgb(var(--card-soft))] flex items-center justify-between gap-3">
+                  <span className="min-w-0">
+                    <span className="block font-medium truncate">{o.customer_name}</span>
+                    <span className="block text-xs text-muted truncate">
+                      <span className="font-mono">{o.order_number}</span> · Guía {o.tracking_number}
+                    </span>
+                  </span>
+                  <span className="text-sm font-semibold shrink-0">Q{Number(o.total).toFixed(2)}</span>
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+      </section>
+
+      {/* RAZÓN */}
+      <section className="space-y-3">
+        <h2 className={sectionTitle}>Razón</h2>
+        <ReturnReasonFields reason={reason} detail={detail} onReason={setReason} onDetail={setDetail} />
+      </section>
+
+      {/* RESUMEN */}
+      <div className="py-3 border-t border-[rgb(var(--border))] space-y-1">
+        <div className="flex justify-between items-center">
+          <span className="font-semibold">Pérdida</span>
+          <span className="text-2xl font-bold text-red-500">−Q{RETURN_LOSS.toFixed(2)}</span>
+        </div>
+        <p className="text-xs text-muted">
+          No cuenta como venta · el producto vuelve al inventario · 2 envíos de Q{SHIPPING_COST}
+        </p>
+      </div>
+
+      <button onClick={save} disabled={!valid || saving}
+        className="btn btn-primary w-full flex justify-center gap-2">
+        <Undo2 size={16} />
+        {saving ? "Guardando…" : "Registrar devolución"}
+      </button>
+    </>
   );
 }

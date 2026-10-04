@@ -8,6 +8,7 @@ import {
 import { supabase } from "@/lib/supabaseClient";
 import { Hidden } from "@/components/ProfitLock";
 import Notice from "@/components/Notice";
+import { ReturnReasonFields, returnReasonText, returnReasonValid } from "@/components/ReturnReason";
 import { RETURN_LOSS } from "@/lib/constants";
 
 type Vendor = { id: string; name: string };
@@ -656,14 +657,6 @@ function SaleCard({ s, open, onToggle, onStatus, onDelete }: {
    MODAL DEVOLUCIÓN
 ===================== */
 
-const RETURN_REASONS = [
-  "Talla incorrecta",
-  "Producto dañado o con defecto",
-  "Diseño o color equivocado",
-  "El cliente ya no lo quiso",
-  "Otra razón",
-];
-
 function ReturnModal({ sale, onClose, onConfirm }: {
   sale: Sale;
   onClose: () => void;
@@ -673,14 +666,12 @@ function ReturnModal({ sale, onClose, onConfirm }: {
   const [detail, setDetail] = useState("");
   const [saving, setSaving] = useState(false);
 
-  const isOther = reason === "Otra razón";
-  const valid   = isOther ? detail.trim() !== "" : reason !== "";
+  const valid = returnReasonValid(reason, detail);
 
   async function submit() {
     if (!valid) return;
     setSaving(true);
-    const finalReason = isOther ? detail.trim() : [reason, detail.trim()].filter(Boolean).join(" — ");
-    const ok = await onConfirm(finalReason);
+    const ok = await onConfirm(returnReasonText(reason, detail));
     if (!ok) setSaving(false);
   }
 
@@ -697,29 +688,11 @@ function ReturnModal({ sale, onClose, onConfirm }: {
         <p className="text-sm">
           Pedido <span className="font-mono font-medium">{sale.order_number}</span> · {sale.customer_name}
         </p>
-        <ul className="text-xs text-muted mt-2 mb-4 space-y-1 list-disc pl-4">
-          <li>No se cuenta como venta (los Q{Number(sale.total).toFixed(2)} no entran en ventas ni ganancias).</li>
-          <li>El producto regresa al inventario.</li>
-          <li>Solo se pierden 2 envíos: Q{RETURN_LOSS / 2} + Q{RETURN_LOSS / 2} = <b className="text-red-500">Q{RETURN_LOSS}</b>.</li>
-        </ul>
+        <p className="text-xs text-muted mt-1 mb-4">
+          No cuenta como venta · el producto vuelve al inventario · pérdida <b className="text-red-500">Q{RETURN_LOSS}</b> (2 envíos)
+        </p>
 
-        <div className="space-y-3">
-          <div>
-            <label className="text-xs text-muted block mb-1">Razón de devolución *</label>
-            <select className="input w-full" value={reason} onChange={(e) => setReason(e.target.value)} autoFocus>
-              <option value="">Selecciona una razón…</option>
-              {RETURN_REASONS.map((r) => <option key={r} value={r}>{r}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="text-xs text-muted block mb-1">
-              {isOther ? "Describe la razón *" : "Detalle (opcional)"}
-            </label>
-            <textarea className="input w-full resize-none" rows={2}
-              placeholder={isOther ? "¿Por qué se devolvió?" : "Ej: pidió talla M en lugar de L"}
-              value={detail} onChange={(e) => setDetail(e.target.value)} />
-          </div>
-        </div>
+        <ReturnReasonFields reason={reason} detail={detail} onReason={setReason} onDetail={setDetail} />
 
         <div className="flex gap-2 mt-5">
           <button onClick={onClose} className="btn btn-ghost flex-1">Cancelar</button>

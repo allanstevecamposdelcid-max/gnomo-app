@@ -11,6 +11,7 @@ import dynamic from "next/dynamic";
 import { Hidden, HiddenBlock, useProfitLock } from "@/components/ProfitLock";
 import TopProducts from "@/components/TopProducts";
 import Notice from "@/components/Notice";
+import { LOW_STOCK_MAX } from "@/lib/constants";
 
 const VentasCharts = dynamic(() => import("@/components/VentasCharts"), { ssr: false });
 
@@ -118,7 +119,10 @@ export default function DashboardPage() {
         .gte("created_at", `${dateFrom}T00:00:00`)
         .lte("created_at", `${dateTo}T23:59:59`)
         .order("created_at", { ascending: true }),
-      supabase.from("low_stock_products").select("id, name, sku, stock"),
+      supabase.from("products").select("id, name, sku, stock")
+        .eq("active", true).is("base_product_id", null)
+        .lte("stock", LOW_STOCK_MAX)
+        .order("stock").order("name"),
       supabase.from("fixed_expenses").select("amount, start_date, end_date")
         .lte("start_date", dateTo)
         .or(`end_date.is.null,end_date.gte.${dateFrom}`),
@@ -431,7 +435,7 @@ export default function DashboardPage() {
         <Notice
           icon={<AlertTriangle size={16} />}
           title={`${lowStock.length} producto${lowStock.length !== 1 ? "s" : ""} con poco stock`}
-          detail="5 unidades o menos"
+          detail={`${LOW_STOCK_MAX} unidades o menos`}
           action={{ label: "Ver", onClick: showLowStock }}
         />
       )}

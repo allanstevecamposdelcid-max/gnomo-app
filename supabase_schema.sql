@@ -167,17 +167,9 @@ CREATE TABLE IF NOT EXISTS app_settings (
   value TEXT NOT NULL
 );
 
--- ────────────────────────────────────────────────────────────
--- VISTA: productos con poco inventario
--- (los diseños no cuentan: su stock es el de la prenda base)
--- ────────────────────────────────────────────────────────────
-
-CREATE OR REPLACE VIEW low_stock_products
-WITH (security_invoker = true) AS
-  SELECT id, name, sku, stock
-  FROM products
-  WHERE active AND base_product_id IS NULL AND stock <= 5
-  ORDER BY stock, name;
+-- El aviso de poco stock lo calcula la app (LOW_STOCK_MAX en src/lib/constants.ts).
+-- Esta vista ya no se usa.
+DROP VIEW IF EXISTS low_stock_products;
 
 -- ────────────────────────────────────────────────────────────
 -- FUNCIONES
