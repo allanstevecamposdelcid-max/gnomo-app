@@ -72,6 +72,12 @@ const STATUS_FLOW: Status[] = ["pendiente", "enviado", "entregado", "no_recibido
 // Ventas cerradas: el stock ya regresó y la pérdida ya se registró
 const isClosed = (s: Sale) => s.status === "no_recibido" || s.status === "devuelto";
 
+/* Día local (YYYY-MM-DD, hora de Guatemala) de una fecha guardada en la base */
+function localDay(iso: string) {
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 function isOverdue(sale: Sale): boolean {
   if (sale.status !== "enviado" || !sale.sent_at) return false;
   const days = (Date.now() - new Date(sale.sent_at).getTime()) / 86_400_000;
@@ -106,7 +112,7 @@ export default function VentasPage() {
   const [showFilters,    setShowFilters]     = useState(false);
   const [onlyOverdue,    setOnlyOverdue]     = useState(false);
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localDay(new Date().toISOString());
   const monthStart = today.slice(0, 7) + "-01";
 
   /* =====================
@@ -158,7 +164,7 @@ export default function VentasPage() {
   const filtered = useMemo(() => {
     const q = search.toLowerCase().trim();
     return sales.filter((s) => {
-      const d = s.created_at.slice(0, 10);
+      const d = localDay(s.created_at);
       if (filterStatus  && s.status       !== filterStatus)  return false;
       if (filterPayment && s.payment_type !== filterPayment) return false;
       if (filterFrom    && d < filterFrom)                   return false;

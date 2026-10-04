@@ -10,7 +10,9 @@ type SaleRow = {
 };
 
 const MONTHS = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
-function toDateStr(d: Date) { return d.toISOString().slice(0, 10); }
+const pad2 = (n: number) => String(n).padStart(2, "0");
+/* Fecha local (hora de Guatemala), no UTC */
+function toDateStr(d: Date) { return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`; }
 
 /* Productos vendidos en un rango, de más vendido a menos vendido.
    Cuenta pendientes, enviados y entregados; excluye no recibidos y devoluciones. */
@@ -36,8 +38,8 @@ export default function TopProducts() {
       setLoading(true);
       const { data } = await supabase.from("sales")
         .select("sale_items(product_id, product_name, qty, unit_price)")
-        .gte("created_at", `${from}T00:00:00`)
-        .lte("created_at", `${to}T23:59:59`)
+        .gte("created_at", new Date(`${from}T00:00:00`).toISOString())
+        .lte("created_at", new Date(`${to}T23:59:59.999`).toISOString())
         .not("status", "in", "(no_recibido,devuelto)");
       const map: Record<string, Row> = {};
       for (const s of (data ?? []) as unknown as SaleRow[]) {

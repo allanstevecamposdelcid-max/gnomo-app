@@ -4,10 +4,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   TrendingUp, AlertTriangle, Wallet, ShoppingBag,
   PackageX, Download, BarChart3, CalendarRange, ChevronDown,
-  Plus, Trash2, DollarSign, PinOff, Trophy, Undo2,
+  Plus, Trash2, DollarSign, PinOff, Trophy, Undo2, Clock, Package,
 } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 import dynamic from "next/dynamic";
+import type { CellHookData } from "jspdf-autotable";
 import { Hidden, HiddenBlock, useProfitLock } from "@/components/ProfitLock";
 import TopProducts from "@/components/TopProducts";
 import Notice from "@/components/Notice";
@@ -15,7 +16,7 @@ import { LOW_STOCK_MAX } from "@/lib/constants";
 
 const VentasCharts = dynamic(() => import("@/components/VentasCharts"), { ssr: false });
 
-type SaleItem = { qty: number; unit_cost: number };
+type SaleItem = { product_id: string | null; product_name: string; qty: number; unit_price: number; unit_cost: number };
 type Sale = {
   order_number: string; customer_name: string;
   total: number; shipping_cost: number; shipping_discount: number;
@@ -30,8 +31,16 @@ type FixedExpense = { id: string; description: string; amount: number; start_dat
 type Loss = { amount: number; reason: "no_recibido" | "devolucion" | "otro" };
 
 const MONTHS = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
-function toDateStr(d: Date) { return d.toISOString().slice(0, 10); }
 const pad2 = (n: number) => String(n).padStart(2, "0");
+/* Fecha local (hora de Guatemala). Con UTC, una venta de noche caía en el día siguiente. */
+function toDateStr(d: Date) { return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`; }
+/* Día local (YYYY-MM-DD) de una fecha guardada en la base */
+const localDay = (iso: string) => toDateStr(new Date(iso));
+/* Inicio y fin de un rango de días locales, en el formato de la base */
+function dayRange(from: string, to: string) {
+  return { start: new Date(`${from}T00:00:00`).toISOString(), end: new Date(`${to}T23:59:59.999`).toISOString() };
+}
+const SALE_FIELDS = "order_number, customer_name, total, shipping_cost, shipping_discount, status, payment_type, created_at, sale_items(product_id, product_name, qty, unit_price, unit_cost)";
 /* Primer y último día (YYYY-MM-DD) del mes m (1-12) */
 function monthBounds(y: number, m: number) {
   return { first: `${y}-${pad2(m)}-01`, last: `${y}-${pad2(m)}-${pad2(new Date(y, m, 0).getDate())}` };
@@ -77,6 +86,7 @@ export default function DashboardPage() {
   const [showCharts,  setShowCharts]  = useState(false);
 
   const [openRange,    setOpenRange]    = useState(true);
+  const [openTotals,   setOpenTotals]   = useState(true);
   const [openMetrics,  setOpenMetrics]  = useState(true);
   const [openDesglose, setOpenDesglose] = useState(false);
   const [openTable,    setOpenTable]    = useState(true);
@@ -113,11 +123,12 @@ export default function DashboardPage() {
       monthPairs.push({ m: cur.getMonth() + 1, y: cur.getFullYear() });
       cur.setMonth(cur.getMonth() + 1);
     }
+    const range = dayRange(dateFrom, dateTo);
     const [salesRes, lowRes, fixedRes, lossRes] = await Promise.all([
       supabase.from("sales")
-        .select("order_number, customer_name, total, shipping_cost, shipping_discount, status, payment_type, created_at, sale_items(qty, unit_cost)")
-        .gte("created_at", `${dateFrom}T00:00:00`)
-        .lte("created_at", `${dateTo}T23:59:59`)
+        .select(SALE_FIELDS)
+        .gte("created_at", range.start)
+        .lte("created_at", range.end)
         .order("created_at", { ascending: true }),
       supabase.from("products").select("id, name, sku, stock")
         .eq("active", true).is("base_product_id", null)
@@ -152,9 +163,9 @@ export default function DashboardPage() {
     const { first, last } = monthBounds(y, m);
     const [sRes, eRes, fRes, lRes] = await Promise.all([
       supabase.from("sales")
-        .select("order_number, customer_name, total, shipping_cost, shipping_discount, status, payment_type, created_at, sale_items(qty, unit_cost)")
-        .gte("created_at", `${cajaDate}T00:00:00`)
-        .lte("created_at", `${cajaDate}T23:59:59`)
+        .select(SALE_FIELDS)
+        .gte("created_at", dayRange(cajaDate, cajaDate).start)
+        .lte("created_at", dayRange(cajaDate, cajaDate).end)
         .order("created_at", { ascending: false }),
       supabase.from("expenses")
         .select("id, description, amount")
@@ -201,6 +212,22 @@ export default function DashboardPage() {
 
   const gananciaNeta = gananciaBruta - gastosFijos - perdidaEnvios;
 
+  /* ── ventas totales: todos los pedidos del período, se haya confirmado o no la entrega ──
+     (no cuentan los no recibidos ni las devoluciones, que no son ventas) */
+  const activas = useMemo(() =>
+    sales.filter(s => s.status !== "no_recibido" && s.status !== "devuelto"), [sales]);
+  const ventasTotales = useMemo(() =>
+    activas.reduce((sum, s) => sum + Number(s.total), 0), [activas]);
+  const gananciaTotal = useMemo(() =>
+    activas.reduce((sum, s) =>
+      sum + Number(s.total) - Number(s.shipping_discount || 0)
+        - s.sale_items.reduce((x, i) => x + Number(i.unit_cost) * Number(i.qty), 0), 0), [activas]);
+  const porConfirmar = useMemo(() => activas.filter(s => s.status !== "entregado"), [activas]);
+  const montoPorConfirmar = useMemo(() =>
+    porConfirmar.reduce((sum, s) => sum + Number(s.total), 0), [porConfirmar]);
+  const unidadesTotales = useMemo(() =>
+    activas.reduce((sum, s) => sum + s.sale_items.reduce((x, i) => x + Number(i.qty), 0), 0), [activas]);
+
   /* ── cálculos caja ── */
   const cajaEntregadas = useMemo(() => cajaSales.filter(s => s.status === "entregado"),   [cajaSales]);
   const cajaNoRec      = useMemo(() => cajaSales.filter(s => s.status === "no_recibido"), [cajaSales]);
@@ -221,29 +248,54 @@ export default function DashboardPage() {
   const cajaFixedTotal = useMemo(() =>
     cajaFixed.reduce((sum, f) => sum + Number(f.amount), 0), [cajaFixed]);
 
-  /* ── tabla por día ── */
+  /* ── tabla por día: todas las ventas, se haya confirmado o no la entrega ── */
   const dailyData = useMemo(() => {
     const map: Record<string, {
-      fecha: string; pedidos: number; ventas: number; costo: number;
-      ganancia: number; pendientes: number; enviados: number; noRec: number;
+      fecha: string; pedidos: number; unidades: number; ventas: number; ganancia: number;
+      pendientes: number; enviados: number; entregados: number; noRec: number;
     }> = {};
     for (const s of sales) {
-      const d = s.created_at.slice(0, 10);
-      if (!map[d]) map[d] = { fecha: d, pedidos: 0, ventas: 0, costo: 0, ganancia: 0, pendientes: 0, enviados: 0, noRec: 0 };
+      const d = localDay(s.created_at);
+      if (!map[d]) map[d] = { fecha: d, pedidos: 0, unidades: 0, ventas: 0, ganancia: 0, pendientes: 0, enviados: 0, entregados: 0, noRec: 0 };
       const row = map[d]; row.pedidos++;
-      const c = s.sale_items.reduce((x, i) => x + Number(i.unit_cost) * Number(i.qty), 0)
+      // No recibidos y devoluciones no son ventas
+      if (s.status === "no_recibido" || s.status === "devuelto") { row.noRec++; continue; }
+      const costo = s.sale_items.reduce((x, i) => x + Number(i.unit_cost) * Number(i.qty), 0)
         + Number(s.shipping_discount || 0);
-      if (s.status === "entregado") {
-        row.ventas   += Number(s.total);
-        row.costo    += c;
-        row.ganancia += Number(s.total) - c;
-      }
-      if (s.status === "pendiente")   row.pendientes++;
-      if (s.status === "enviado")     row.enviados++;
-      if (s.status === "no_recibido" || s.status === "devuelto") row.noRec++;
+      row.unidades += s.sale_items.reduce((x, i) => x + Number(i.qty), 0);
+      row.ventas   += Number(s.total);
+      row.ganancia += Number(s.total) - costo;
+      if (s.status === "pendiente") row.pendientes++;
+      if (s.status === "enviado")   row.enviados++;
+      if (s.status === "entregado") row.entregados++;
     }
     return Object.values(map).sort((a, b) => a.fecha.localeCompare(b.fecha));
   }, [sales]);
+
+  /* ── productos vendidos: en todo el rango y por día (para el PDF) ── */
+  const productosVendidos = useMemo(() => {
+    type Row = { name: string; qty: number; total: number };
+    const add = (m: Record<string, Row>, key: string, i: SaleItem) => {
+      if (!m[key]) m[key] = { name: i.product_name, qty: 0, total: 0 };
+      m[key].qty   += Number(i.qty);
+      m[key].total += Number(i.qty) * Number(i.unit_price);
+    };
+    const todos: Record<string, Row> = {};
+    const porDia: Record<string, Record<string, Row>> = {};
+    for (const s of activas) {
+      const d = localDay(s.created_at);
+      for (const i of s.sale_items) {
+        const key = i.product_id ?? i.product_name;
+        add(todos, key, i);
+        add((porDia[d] ??= {}), key, i);
+      }
+    }
+    const ordenar = (m: Record<string, Row>) => Object.values(m).sort((a, b) => b.qty - a.qty || b.total - a.total);
+    return {
+      ranking: ordenar(todos),
+      dias: Object.keys(porDia).sort().map((fecha) => ({ fecha, productos: ordenar(porDia[fecha]) })),
+    };
+  }, [activas]);
 
   const porDia = useMemo(() =>
     dailyData.map(r => ({
@@ -253,9 +305,9 @@ export default function DashboardPage() {
 
   const porMes = useMemo(() => {
     const map: Record<string, number> = {};
-    for (const s of entregadas) { const k = s.created_at.slice(0, 7); map[k] = (map[k] || 0) + Number(s.total); }
+    for (const s of activas) { const k = localDay(s.created_at).slice(0, 7); map[k] = (map[k] || 0) + Number(s.total); }
     return Object.entries(map).sort(([a], [b]) => a.localeCompare(b)).map(([k, total]) => ({ month: k, total }));
-  }, [entregadas]);
+  }, [activas]);
 
   /* ── gastos caja ── */
   async function addCajaExp() {
@@ -295,72 +347,177 @@ export default function DashboardPage() {
     loadCaja();
   }
 
-  /* ── PDF ── */
+  /* ── PDF: reporte completo del rango ── */
   async function downloadPDF() {
     if (!unlocked) { requestUnlock(); return; }
     const { default: jsPDF }     = await import("jspdf");
     const { default: autoTable } = await import("jspdf-autotable");
     const doc = new jsPDF();
-    const label = dateFrom === dateTo ? dateFrom : `${dateFrom} — ${dateTo}`;
+    const pageW = doc.internal.pageSize.getWidth();
+    const pageH = doc.internal.pageSize.getHeight();
 
-    doc.setFontSize(18); doc.setTextColor(10, 10, 10);
+    // Montos con separador de miles (Q30,000.00). Se usa "-" normal: las fuentes del PDF
+    // no traen el signo menos tipográfico.
+    const q     = (n: number) => `${n < 0 ? "-" : ""}Q${Math.abs(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    const menos = (n: number) => (n > 0 ? `- ${q(n)}` : q(0));
+    // Alinea encabezado, datos y total de cada columna igual
+    const alinear = (cols: Record<number, "center" | "right">) => (data: CellHookData) => {
+      const h = cols[data.column.index];
+      if (h) data.cell.styles.halign = h;
+    };
+    const dia  = (d: string) => new Date(d + "T12:00:00").toLocaleDateString("es-GT", { weekday: "short", day: "2-digit", month: "short" });
+    const head = { fillColor: [15, 15, 15] as [number, number, number], textColor: 255 };
+    const foot = { fillColor: [235, 235, 235] as [number, number, number], textColor: 20, fontStyle: "bold" as const };
+    const finalY = () => (doc as unknown as { lastAutoTable?: { finalY?: number } }).lastAutoTable?.finalY ?? 40;
+
+    let y = 0;
+    // Título de sección; si ya no cabe en la hoja, pasa a la siguiente
+    function seccion(titulo: string, x = 14) {
+      if (y > pageH - 40) { doc.addPage(); y = 16; }
+      doc.setFont("helvetica", "bold"); doc.setFontSize(11); doc.setTextColor(0, 0, 0);
+      doc.text(titulo, x, y);
+      doc.setFont("helvetica", "normal");
+    }
+
+    // Encabezado: todo el reporte corresponde al período del filtro de fechas
+    const fecha   = (d: string) => new Date(d + "T12:00:00").toLocaleDateString("es-GT", { day: "2-digit", month: "2-digit", year: "numeric" });
+    const periodo = dateFrom === dateTo ? fecha(dateFrom) : `${fecha(dateFrom)} al ${fecha(dateTo)}`;
+    doc.setFont("helvetica", "bold"); doc.setFontSize(18); doc.setTextColor(10, 10, 10);
     doc.text("El Gnomo", 14, 18);
-    doc.setFontSize(12); doc.setTextColor(0, 0, 0);
-    doc.text(`Resumen financiero: ${label}`, 14, 26);
-    doc.setFontSize(9); doc.setTextColor(120, 120, 120);
-    doc.text(`Generado: ${new Date().toLocaleDateString("es-GT")}`, 14, 32);
+    doc.setFont("helvetica", "normal"); doc.setFontSize(11); doc.setTextColor(0, 0, 0);
+    doc.text("Reporte de ventas y finanzas", 14, 25);
+    doc.setFont("helvetica", "bold");
+    doc.text(`Período: ${periodo}`, 14, 31);
+    doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(120, 120, 120);
+    doc.text(`Generado: ${new Date().toLocaleString("es-GT")}`, 14, 37);
 
-    doc.setTextColor(0, 0, 0);
+    // 1 y 2. Ventas totales y resumen contable, lado a lado
+    y = 48;
+    seccion("Ventas totales (incluye pendientes)");
+    seccion("Resumen contable (solo entregadas)", 108);
+    const yTablas = y + 3;
     autoTable(doc, {
-      startY: 38,
-      head: [["Concepto", "Monto"]],
+      startY: yTablas, margin: { left: 14 }, tableWidth: 88, theme: "grid",
+      head: [["Concepto", "Monto"]], headStyles: head, didParseCell: alinear({ 1: "right" }),
       body: [
-        ["Ventas brutas",   `Q${ventasMes.toFixed(2)}`],
-        ["Costo productos", `- Q${costoProductos.toFixed(2)}`],
-        ["Envío gratis (> Q300)", envioGratis > 0 ? `- Q${envioGratis.toFixed(2)}` : "Q0.00"],
-        ["Ganancia bruta",  `Q${gananciaBruta.toFixed(2)}`],
-        ["Gastos fijos",    `- Q${gastosFijos.toFixed(2)}`],
-        ["Pérdidas envíos y devoluciones", perdidaEnvios > 0 ? `- Q${perdidaEnvios.toFixed(2)}` : "Q0.00"],
-        ["Ganancia neta",   `Q${gananciaNeta.toFixed(2)}`],
+        ["Ventas totales",        q(ventasTotales)],
+        ["Pedidos",               String(activas.length)],
+        ["Por confirmar entrega", `${q(montoPorConfirmar)} (${porConfirmar.length})`],
+        ["Unidades vendidas",     String(unidadesTotales)],
+        ["Ganancia estimada",     q(gananciaTotal)],
       ],
-      theme: "grid",
-      headStyles: { fillColor: [15, 15, 15], textColor: 255 },
-      columnStyles: { 1: { halign: "right" } },
-      margin: { left: 14 }, tableWidth: 90,
+    });
+    const yIzq = finalY();
+    autoTable(doc, {
+      startY: yTablas, margin: { left: 108 }, tableWidth: 88, theme: "grid",
+      head: [["Concepto", "Monto"]], headStyles: head, didParseCell: alinear({ 1: "right" }),
+      body: [
+        ["Ventas entregadas",     q(ventasMes)],
+        ["Costo productos",       menos(costoProductos)],
+        ["Envío gratis (> Q300)", menos(envioGratis)],
+        ["Ganancia bruta",        q(gananciaBruta)],
+        ["Gastos fijos",          menos(gastosFijos)],
+        ["Pérdidas (envíos y devoluciones)", menos(perdidaEnvios)],
+        ["Ganancia neta",         q(gananciaNeta)],
+      ],
+    });
+    y = Math.max(yIzq, finalY()) + 12;
+
+    // 3. Productos más vendidos
+    const ranking = productosVendidos.ranking;
+    seccion("Productos más vendidos");
+    autoTable(doc, {
+      startY: y + 3, theme: "striped", headStyles: head, footStyles: foot,
+      head: [["#", "Producto", "Unidades", "Ventas"]],
+      body: ranking.length
+        ? ranking.map((p, i) => [String(i + 1), p.name, String(p.qty), q(p.total)])
+        : [["", "Sin ventas en este rango", "", ""]],
+      foot: ranking.length
+        ? [["", "Total", String(unidadesTotales), q(ranking.reduce((t, p) => t + p.total, 0))]]
+        : undefined,
+      columnStyles: { 0: { cellWidth: 10 }, 2: { cellWidth: 24 }, 3: { cellWidth: 32 } },
+      didParseCell: alinear({ 0: "center", 2: "center", 3: "right" }),
+    });
+    y = finalY() + 12;
+
+    // 4. Resumen por día
+    seccion("Resumen por día");
+    autoTable(doc, {
+      startY: y + 3, theme: "striped", headStyles: head, footStyles: foot,
+      head: [["Fecha", "Pedidos", "Unidades", "Ventas", "Ganancia est.", "Pend.", "Env.", "Entreg.", "No rec./Dev."]],
+      body: dailyData.length
+        ? dailyData.map((r) => [
+            dia(r.fecha), r.pedidos, r.unidades, q(r.ventas), q(r.ganancia),
+            r.pendientes || "-", r.enviados || "-", r.entregados || "-", r.noRec || "-",
+          ])
+        : [["Sin pedidos en este rango", "", "", "", "", "", "", "", ""]],
+      foot: dailyData.length
+        ? [[
+            "Total", sales.length, unidadesTotales, q(ventasTotales), q(gananciaTotal),
+            dailyData.reduce((t, r) => t + r.pendientes, 0) || "-",
+            dailyData.reduce((t, r) => t + r.enviados, 0)   || "-",
+            dailyData.reduce((t, r) => t + r.entregados, 0) || "-",
+            dailyData.reduce((t, r) => t + r.noRec, 0)      || "-",
+          ]]
+        : undefined,
+      styles: { fontSize: 8.5 },
+      columnStyles: { 0: { cellWidth: 26 } },
+      didParseCell: alinear({ 1: "center", 2: "center", 3: "right", 4: "right", 5: "center", 6: "center", 7: "center", 8: "center" }),
+    });
+    y = finalY() + 12;
+
+    // 5. Qué se vendió cada día
+    seccion("Productos vendidos por día");
+    autoTable(doc, {
+      startY: y + 3, theme: "grid", headStyles: head,
+      head: [["Fecha", "Producto", "Unidades", "Ventas"]],
+      body: productosVendidos.dias.length
+        ? productosVendidos.dias.flatMap(({ fecha, productos }) =>
+            productos.map((p, i) => [
+              ...(i === 0
+                ? [{ content: dia(fecha), rowSpan: productos.length, styles: { valign: "middle" as const, fontStyle: "bold" as const } }]
+                : []),
+              p.name, String(p.qty), q(p.total),
+            ]))
+        : [["", "Sin ventas en este rango", "", ""]],
+      columnStyles: { 0: { cellWidth: 30 }, 2: { cellWidth: 24 }, 3: { cellWidth: 32 } },
+      didParseCell: alinear({ 2: "center", 3: "right" }),
     });
 
-    const y1 = (doc as { lastAutoTable?: { finalY?: number } }).lastAutoTable?.finalY ?? 80;
-    doc.setFontSize(10); doc.text("Detalle por día", 14, y1 + 10);
+    y = finalY() + 12;
+
+    // 6. Detalle de pedidos del período
+    const ESTADO: Record<Sale["status"], string> = {
+      pendiente: "Pendiente", enviado: "Enviado", entregado: "Entregado",
+      no_recibido: "No recibido", devuelto: "Devolución",
+    };
+    seccion("Detalle de pedidos");
     autoTable(doc, {
-      startY: y1 + 14,
-      head: [["Fecha", "Pedidos", "Ventas", "Costo", "Ganancia", "Pend.", "Env.", "No rec."]],
-      body: dailyData.map(r => [
-        new Date(r.fecha + "T12:00:00").toLocaleDateString("es-GT", { day: "2-digit", month: "short" }),
-        r.pedidos,
-        r.ventas > 0 ? `Q${r.ventas.toFixed(2)}` : "—",
-        r.costo  > 0 ? `Q${r.costo.toFixed(2)}`  : "—",
-        r.ventas > 0 ? `Q${r.ganancia.toFixed(2)}` : "—",
-        r.pendientes || "—", r.enviados || "—", r.noRec || "—",
-      ]),
-      foot: [["TOTAL", sales.length,
-        `Q${ventasMes.toFixed(2)}`, `Q${(ventasMes - gananciaBruta).toFixed(2)}`,
-        `Q${gananciaBruta.toFixed(2)}`,
-        dailyData.reduce((s, r) => s + r.pendientes, 0) || "—",
-        dailyData.reduce((s, r) => s + r.enviados, 0)   || "—",
-        noRecibidos.length || "—",
-      ]],
-      theme: "striped",
-      headStyles: { fillColor: [15, 15, 15], textColor: 255 },
-      footStyles: { fillColor: [240, 240, 240], fontStyle: "bold" },
-      columnStyles: {
-        0: { cellWidth: 22 }, 1: { halign: "center" }, 2: { halign: "right" },
-        3: { halign: "right" }, 4: { halign: "right" },
-        5: { halign: "center" }, 6: { halign: "center" }, 7: { halign: "center" },
-      },
-      margin: { left: 14 },
+      startY: y + 3, theme: "striped", headStyles: head, footStyles: foot,
+      head: [["Fecha", "Pedido", "Cliente", "Estado", "Pago", "Total"]],
+      body: sales.length
+        ? sales.map((s) => [
+            fecha(localDay(s.created_at)), s.order_number, s.customer_name,
+            ESTADO[s.status], s.payment_type === "contra_entrega" ? "Contra entrega" : "Pagado",
+            q(Number(s.total)),
+          ])
+        : [["", "", "Sin pedidos en este rango", "", "", ""]],
+      // El total no suma no recibidos ni devoluciones (no son ventas)
+      foot: sales.length ? [["", "", "", "", "Total vendido", q(ventasTotales)]] : undefined,
+      styles: { fontSize: 8.5 },
+      columnStyles: { 0: { cellWidth: 22 }, 1: { cellWidth: 22 }, 5: { cellWidth: 28 } },
+      didParseCell: alinear({ 5: "right" }),
     });
-    const slug = rangeLabel.replace(/\s+/g, "-");
-    doc.save(`ElGnomo-${slug}.pdf`);
+
+    // Número de página en cada hoja
+    const paginas = doc.getNumberOfPages();
+    for (let i = 1; i <= paginas; i++) {
+      doc.setPage(i);
+      doc.setFontSize(8); doc.setTextColor(150, 150, 150);
+      doc.text(`El Gnomo · Página ${i} de ${paginas}`, pageW / 2, pageH - 8, { align: "center" });
+    }
+
+    doc.save(`ElGnomo-reporte-${dateFrom}${dateFrom === dateTo ? "" : `_al_${dateTo}`}.pdf`);
   }
 
   /* ── UI ── */
@@ -440,8 +597,28 @@ export default function DashboardPage() {
         />
       )}
 
-      {/* MÉTRICAS DEL PERÍODO */}
-      <Collapsible label="Resumen del período" open={openMetrics} onToggle={() => setOpenMetrics(v => !v)}>
+      {/* VENTAS TOTALES — sin esperar a que se confirme la entrega (sirve para comprar stock) */}
+      <Collapsible
+        label={<span className="flex items-baseline gap-2">Ventas totales <span className="text-xs font-normal text-muted">incluye pendientes</span></span>}
+        open={openTotals} onToggle={() => setOpenTotals(v => !v)}
+      >
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 pt-3">
+          <Metric label="Ventas totales" value={`Q${ventasTotales.toFixed(2)}`}
+            icon={<TrendingUp size={15} />} sub={`${activas.length} pedido${activas.length !== 1 ? "s" : ""}`} />
+          <Metric label="Por confirmar entrega" value={`Q${montoPorConfirmar.toFixed(2)}`}
+            icon={<Clock size={15} />} sub={`${porConfirmar.length} sin confirmar`} />
+          <Metric label="Unidades vendidas" value={`${unidadesTotales}`}
+            icon={<Package size={15} />} sub="Para reponer stock" />
+          <Metric label="Ganancia estimada" value={<Hidden>Q{gananciaTotal.toFixed(2)}</Hidden>}
+            icon={<Wallet size={15} />} negative={unlocked && gananciaTotal < 0} sub="Ventas − costo productos" />
+        </div>
+      </Collapsible>
+
+      {/* MÉTRICAS DEL PERÍODO (contables: solo lo entregado) */}
+      <Collapsible
+        label={<span className="flex items-baseline gap-2">Resumen del período <span className="text-xs font-normal text-muted">solo entregadas</span></span>}
+        open={openMetrics} onToggle={() => setOpenMetrics(v => !v)}
+      >
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 pt-3">
           <Metric label="Ventas del período" value={`Q${ventasMes.toFixed(2)}`}
             icon={<TrendingUp size={15} />}
@@ -493,39 +670,42 @@ export default function DashboardPage() {
         <TopProducts />
       </Collapsible>
 
-      {/* TABLA POR DÍA */}
+      {/* TABLA POR DÍA — todas las ventas, se haya confirmado o no la entrega */}
       {dailyData.length > 0 && (
-        <Collapsible label={`Resumen por día (${dailyData.length})`} open={openTable} onToggle={() => setOpenTable(v => !v)}>
+        <Collapsible
+          label={<span className="flex items-baseline gap-2">Resumen por día ({dailyData.length}) <span className="text-xs font-normal text-muted">incluye pendientes</span></span>}
+          open={openTable} onToggle={() => setOpenTable(v => !v)}
+        >
           <div className="card p-0 overflow-x-auto mt-3">
             <table className="min-w-full text-sm">
               <thead>
                 <tr className="border-b border-[rgb(var(--border))] text-muted text-xs uppercase tracking-wider bg-[rgb(var(--card-soft))]">
                   <th className="p-3 text-left">Fecha</th>
                   <th className="p-3 text-center">Pedidos</th>
+                  <th className="p-3 text-center hidden sm:table-cell">Unid.</th>
                   <th className="p-3 text-right">Ventas</th>
-                  <th className="p-3 text-right hidden sm:table-cell">Costo</th>
                   <th className="p-3 text-right">Ganancia</th>
                   <th className="p-3 text-center hidden sm:table-cell">Pend.</th>
                   <th className="p-3 text-center hidden sm:table-cell">Env.</th>
-                  <th className="p-3 text-center">No rec.</th>
+                  <th className="p-3 text-center hidden sm:table-cell">No rec.</th>
                 </tr>
               </thead>
               <tbody>
                 {dailyData.map(row => (
                   <tr key={row.fecha} className={`border-t border-[rgb(var(--border))] ${row.fecha === todayStr ? "bg-[rgb(var(--card-soft))]" : ""}`}>
-                    <td className="p-3 font-medium text-sm">
+                    <td className="p-3 font-medium text-sm whitespace-nowrap">
                       {new Date(row.fecha + "T12:00:00").toLocaleDateString("es-GT", { day: "2-digit", month: "short" })}
                       {row.fecha === todayStr && <span className="ml-2 text-[10px] badge badge-gray">hoy</span>}
                     </td>
                     <td className="p-3 text-center font-mono">{row.pedidos}</td>
-                    <td className="p-3 text-right font-medium">{row.ventas > 0 ? `Q${row.ventas.toFixed(2)}` : "—"}</td>
-                    <td className="p-3 text-right text-muted text-xs hidden sm:table-cell">{row.costo > 0 ? `Q${row.costo.toFixed(2)}` : "—"}</td>
-                    <td className={`p-3 text-right font-semibold ${row.ganancia < 0 ? "text-red-500" : row.ganancia === 0 ? "text-muted" : ""}`}>
+                    <td className="p-3 text-center font-mono hidden sm:table-cell">{row.unidades || "—"}</td>
+                    <td className="p-3 text-right font-medium whitespace-nowrap">{row.ventas > 0 ? `Q${row.ventas.toFixed(2)}` : "—"}</td>
+                    <td className={`p-3 text-right font-semibold whitespace-nowrap ${row.ganancia < 0 ? "text-red-500" : row.ganancia === 0 ? "text-muted" : ""}`}>
                       {row.ventas > 0 ? <Hidden>Q{row.ganancia.toFixed(2)}</Hidden> : "—"}
                     </td>
                     <td className="p-3 text-center hidden sm:table-cell">{row.pendientes > 0 ? <span className="badge badge-yellow">{row.pendientes}</span> : "—"}</td>
                     <td className="p-3 text-center hidden sm:table-cell">{row.enviados   > 0 ? <span className="badge badge-blue">{row.enviados}</span>     : "—"}</td>
-                    <td className="p-3 text-center">{row.noRec      > 0 ? <span className="badge badge-red">{row.noRec}</span>         : "—"}</td>
+                    <td className="p-3 text-center hidden sm:table-cell">{row.noRec      > 0 ? <span className="badge badge-red">{row.noRec}</span>         : "—"}</td>
                   </tr>
                 ))}
               </tbody>
@@ -533,12 +713,12 @@ export default function DashboardPage() {
                 <tr className="border-t-2 border-[rgb(var(--border))] bg-[rgb(var(--card-soft))] font-semibold text-sm">
                   <td className="p-3">Total</td>
                   <td className="p-3 text-center font-mono">{sales.length}</td>
-                  <td className="p-3 text-right">Q{ventasMes.toFixed(2)}</td>
-                  <td className="p-3 text-right text-muted text-xs hidden sm:table-cell">Q{(ventasMes - gananciaBruta).toFixed(2)}</td>
-                  <td className={`p-3 text-right ${gananciaBruta < 0 ? "text-red-500" : ""}`}><Hidden>Q{gananciaBruta.toFixed(2)}</Hidden></td>
+                  <td className="p-3 text-center font-mono hidden sm:table-cell">{unidadesTotales}</td>
+                  <td className="p-3 text-right whitespace-nowrap">Q{ventasTotales.toFixed(2)}</td>
+                  <td className={`p-3 text-right whitespace-nowrap ${gananciaTotal < 0 ? "text-red-500" : ""}`}><Hidden>Q{gananciaTotal.toFixed(2)}</Hidden></td>
                   <td className="p-3 text-center hidden sm:table-cell">{dailyData.reduce((s, r) => s + r.pendientes, 0) || "—"}</td>
                   <td className="p-3 text-center hidden sm:table-cell">{dailyData.reduce((s, r) => s + r.enviados, 0)   || "—"}</td>
-                  <td className="p-3 text-center text-red-500">{noRecibidos.length || "—"}</td>
+                  <td className="p-3 text-center text-red-500 hidden sm:table-cell">{dailyData.reduce((s, r) => s + r.noRec, 0) || "—"}</td>
                 </tr>
               </tfoot>
             </table>
