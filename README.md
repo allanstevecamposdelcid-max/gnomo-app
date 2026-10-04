@@ -6,7 +6,7 @@ App de ventas, inventario y finanzas de El Gnomo, hecha con Next.js 16 y Supabas
 
 1. En Supabase abre **SQL Editor → New query**, pega el contenido de [`supabase_schema.sql`](supabase_schema.sql) y ejecútalo.
 2. Si el script cambia, se puede volver a ejecutar: no borra datos ni cambia la contraseña.
-3. La contraseña inicial para ver las ganancias es `1234`. Cámbiala desde la app con el candado del encabezado → "Cambiar contraseña".
+3. La contraseña inicial para ver las ganancias es ``. Cámbiala desde la app con el candado del encabezado → "Cambiar contraseña".
 
 ## Variables de entorno
 
